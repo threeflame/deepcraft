@@ -3,7 +3,7 @@
 /*
 ==========================================================================
  🧠 AI CONTEXT MEMORY (DeepCraft Development Log)
- Version: 9.0 (Stable Release & Technical Constraints)
+ Version: 10.0 (Ether System Implemented)
 ==========================================================================
 
 ## 1. Project Overview / プロジェクト概要
@@ -13,40 +13,21 @@
 - **Library**: Chest-UI.
 
 ## 2. ⚠️ Technical Constraints & Ban List (重要: 使用禁止・非推奨コード)
-以下の機能はこの環境で動作しないか、バグの原因となるため使用禁止。
-
 1.  **[BANNED] `world.beforeEvents.entityHurt`**
-    * Reason: 動作しない、またはダメージ書き換えが適用されない環境であるため。
-    * Solution: 全ての戦闘処理は `world.afterEvents.entityHurt` で行い、軽減は「即時回復」で、無効化は「ダメージ分回復」で擬似的に表現すること。
-
+    * Solution: `world.afterEvents.entityHurt` + Health refund mechanics.
 2.  **[BANNED] `world.afterEvents.entityHitEntity`**
-    * Reason: APIバージョンにより存在しない場合がある。
-    * Solution: `entityHurt` の `attacker` をチェックして代用する。
+    * Solution: Check `attacker` in `entityHurt`.
+3.  **[BANNED] `world.afterEvents.chatSend` (!cmd)**
+    * Solution: Use `/scriptevent deepcraft:command`.
+4.  **[BANNED] `entity.playSound()`**
+    * Solution: `dimension.playSound(id, location)`.
+5.  **[BANNED] Summoning `small_fireball`**
+    * Solution: `snowball` + particle effects.
 
-3.  **[BANNED] `world.afterEvents.chatSend` (Custom Command `!cmd`)**
-    * Reason: 権限設定やバージョン依存が激しく不安定。
-    * Solution: 公式の `/scriptevent deepcraft:command` 方式のみを使用する。
-
-4.  **[BANNED] `entity.playSound()` (for Mobs)**
-    * Reason: Mobオブジェクトには `playSound` メソッドがない。
-    * Solution: `entity.dimension.playSound("sound.name", entity.location)` を使用する。
-
-5.  **[BANNED] Summoning `minecraft:small_fireball`**
-    * Reason: `is_summonable: false` のため召喚不可。
-    * Solution: `minecraft:snowball` を召喚し、パーティクルで装飾して代用する。
-
-## 3. File Structure / ファイル構成
-- **BP/scripts/**:
-  - `index.js`: Entry point.
-  - `main.js`: System Logic (Event listeners, UI calls).
-  - `config.js`: Settings & Stat Definitions.
-  - `ai_memory.js`: This file.
-  - **data/**:
-    - `talents.js`: Passive abilities logic.
-    - `quests.js`: Quest definitions.
-    - `equipment.js`: Item definitions & Requirements.
-    - `skills.js`: Active skills logic.
-    - `mobs.js`: Boss definitions & AI.
+## 3. File Structure
+- `main.js`: Core logic (Tick, Events, Ether, UI).
+- `config.js`: Settings (Stats, Ether Calc).
+- `data/skills.js`: Active skills with Mana Cost.
 
 ## 4. Current Mechanics / 実装済みの仕様
 
