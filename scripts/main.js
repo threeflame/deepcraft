@@ -216,14 +216,9 @@ function executeSkill(player, skillId) {
 
 function calculateEntityStats(entity) {
     const stats = {
-        atk: 0,
-        def: 0,
-        critChance: CONFIG.COMBAT.BASE_CRIT_CHANCE,
-        critMult: CONFIG.COMBAT.BASE_CRIT_MULT,
-        speed: 1.0,
-        maxEther: 0,
-        etherRegen: 0,
-        maxHP: 20
+        atk: 0, def: 0, critChance: CONFIG.COMBAT.BASE_CRIT_CHANCE, critMult: CONFIG.COMBAT.BASE_CRIT_MULT,
+        speed: 1.0, maxEther: 0, etherRegen: 0, maxHP: 100,
+        evasion: 0 // ★追加: 回避率
     };
 
     if (entity.typeId === "minecraft:player") {
@@ -233,7 +228,9 @@ function calculateEntityStats(entity) {
         const int = entity.getDynamicProperty("deepcraft:intelligence") || 0;
         const will = entity.getDynamicProperty("deepcraft:willpower") || 0;
         const defStat = entity.getDynamicProperty("deepcraft:defense") || 0;
-        const level = entity.getDynamicProperty("deepcraft:level") || 1;
+        
+        let level = entity.getDynamicProperty("deepcraft:level");
+        if (typeof level !== 'number' || level < 1) level = 1;
 
         const equip = entity.getComponent("equippable");
         const mainHand = equip.getEquipment(EquipmentSlot.Mainhand);
@@ -244,6 +241,7 @@ function calculateEntityStats(entity) {
             equipStats.def += getEquipmentStats(equip.getEquipment(slot)).def;
         });
 
+        // ATK
         let atk = level + (str * 0.5) + equipStats.atk;
         if (entity.hasTag("talent:brute_force")) atk += 2;
         if (entity.hasTag("talent:glass_cannon")) atk *= 1.5;
@@ -253,35 +251,44 @@ function calculateEntityStats(entity) {
         const hpMaxProp = entity.getDynamicProperty("deepcraft:max_hp") || 100;
         if (entity.hasTag("talent:berserker") && (hpProp / hpMaxProp < 0.3)) atk *= 1.5;
         if (entity.hasTag("talent:assassin") && entity.isSneaking) atk *= 2.0;
-        
         stats.atk = Math.floor(atk);
 
+        // Crit
         stats.critChance += (agi * 0.001) + (int * 0.0005);
         if (entity.hasTag("talent:eagle_eye")) stats.critChance += 0.1;
         stats.critMult += (str * 0.005);
 
+        // DEF
         let def = defStat + (fort * CONFIG.COMBAT.DEFENSE_CONSTANT) + equipStats.def;
         if (entity.hasTag("talent:tough_skin")) def += 2;
         if (entity.hasTag("talent:iron_wall")) def += 5;
         if (entity.hasTag("talent:last_stand") && (hpProp / hpMaxProp < 0.3)) def *= 1.5;
         stats.def = Math.floor(def);
 
+        // Ether
         stats.maxEther = Math.floor(CONFIG.ETHER_BASE + (int * CONFIG.ETHER_PER_INT));
         stats.etherRegen = CONFIG.ETHER_REGEN_BASE + (will * CONFIG.ETHER_REGEN_PER_WILL);
 
+        // Max HP
         let hp = 18 + (fort * 2);
         if (entity.hasTag("talent:vitality_1")) hp += 4;
         if (entity.hasTag("talent:vitality_2")) hp += 10;
         if (entity.hasTag("talent:glass_cannon")) hp = Math.floor(hp * 0.5);
         stats.maxHP = Math.floor(hp);
 
+        // Speed
         let speedIndex = 10 + Math.floor(agi * 0.2);
         if (entity.hasTag("talent:swift_1")) speedIndex += 5; 
         if (entity.hasTag("talent:godspeed")) speedIndex += 15;
         if (entity.hasTag("debuff:heavy_armor")) speedIndex = Math.max(5, speedIndex - 10);
         stats.speed = speedIndex * 0.01;
-    } 
-    else {
+
+        // ★追加: 回避率 (Evasion)
+        if (entity.hasTag("talent:evasion")) stats.evasion += 0.15;
+        stats.evasion += (agi * 0.001);
+
+    } else {
+        // Mob
         let maxHP = entity.getDynamicProperty("deepcraft:max_hp");
         if (maxHP === undefined) {
             const bossId = entity.getDynamicProperty("deepcraft:boss_id");
@@ -295,7 +302,7 @@ function calculateEntityStats(entity) {
             entity.setDynamicProperty("deepcraft:hp", maxHP);
         }
         stats.maxHP = maxHP;
-        stats.atk = 5;
+        stats.atk = 50;
         stats.def = 0;
     }
     return stats;
@@ -798,14 +805,22 @@ function openDetailStats(player) {
     const stats = calculateEntityStats(player);
     const form = new ChestFormData("small");
     form.title("§lキャラクター詳細");
-    form.button(10, `§c§l攻撃力: ${stats.atk}`, ["§7物理攻撃力"], "minecraft:iron_sword");
-    form.button(11, `§b§l防御力: ${stats.def}`, ["§7ダメージ軽減量"], "minecraft:shield");
+    
+    form.button(10, `§c§l攻撃力: ${stats.atk}`, ["§7物理攻撃力 (Total ATK)"], "minecraft:iron_sword");
+    form.button(11, `§b§l防御力: ${stats.def}`, ["§7ダメージ軽減量 (Total DEF)"], "minecraft:shield");
     form.button(12, `§e§l会心率: ${(stats.critChance * 100).toFixed(1)}%`, ["§7クリティカル発生率"], "minecraft:gold_nugget");
     form.button(13, `§6§l会心倍率: ${(stats.critMult * 100).toFixed(0)}%`, ["§7クリティカル時のダメージ倍率"], "minecraft:blaze_powder");
-    form.button(14, `§3§lエーテル: ${stats.maxEther}`, [`§7自然回復: ${stats.etherRegen}/秒`], "minecraft:phantom_membrane");
+    
+    form.button(14, `§3§lエーテル: ${stats.maxEther}`, [`§7自然回復: ${stats.etherRegen.toFixed(1)}/秒`], "minecraft:phantom_membrane");
     form.button(15, `§f§l速度: ${(stats.speed * 100).toFixed(0)}%`, ["§7移動速度"], "minecraft:feather");
+    
+    // ★追加: 回避率の表示
+    form.button(16, `§a§l回避率: ${(stats.evasion * 100).toFixed(1)}%`, ["§7ダメージ完全無効化率"], "minecraft:sugar");
+    
     form.button(26, "§c§l戻る", ["§rメニューへ戻る"], "minecraft:barrier");
-    form.show(player).then(res => { if (!res.canceled && res.selection === 26) openMenuHub(player); });
+    form.show(player).then(res => {
+        if (!res.canceled && res.selection === 26) openMenuHub(player);
+    });
 }
 
 function openProfileMenu(player) {
