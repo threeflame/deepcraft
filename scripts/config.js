@@ -18,7 +18,8 @@ export const CONFIG = {
         BASE_CRIT_CHANCE: 0.05, // 基礎クリティカル率 5%
         BASE_CRIT_MULT: 1.5,    // 基礎クリティカル倍率 1.5倍
         DEFENSE_CONSTANT: 0.5,  // Fortitudeの防御への寄与率
-        MIN_DAMAGE: 1           // 最低保証ダメージ
+        MIN_DAMAGE: 1,           // 最低保証ダメージ
+        COMBAT_MODE_DURATION: 20
     },
 
     STATS: {

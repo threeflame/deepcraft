@@ -19,23 +19,25 @@ world.afterEvents.playerSpawn.subscribe((ev) => {
         if (!player.getDynamicProperty("deepcraft:active_profile")) {
             initializePlayer(player);
         }
-        // 即死防止用のHP全快
+        
+        // ★コンバットログ対策 (無限ループ防止版)
+        const combatTimer = player.getDynamicProperty("deepcraft:combat_timer") || 0;
+        if (combatTimer > 0) {
+            // 先にタイマーを消す (これが重要)
+            player.setDynamicProperty("deepcraft:combat_timer", 0);
+            // 罰として死亡させる
+            player.runCommand("kill @s");
+            player.sendMessage("§c§l戦闘中に切断したため、死亡しました。(Combat Log)");
+            return;
+        }
+
         const hp = player.getComponent("minecraft:health");
         if (hp) hp.resetToMax();
-
-        // ★追加: 強制スニークによるヒットボックス修正
-        // 2tick待ってからスニークON -> さらに2tick待ってスニークOFF
+        
+        // Hitbox Desync対策
         system.runTimeout(() => {
-            if (player.isValid()) {
-                player.isSneaking = true; // しゃがませる
-                
-
-                // 一瞬後に立ち上がらせる
-                system.runTimeout(() => {
-                    if (player.isValid()) player.isSneaking = false;
-                }, 20);
-            }
-        }, 20);
+            if (player.isValid()) player.triggerEvent("scale_reset");
+        }, 2);
 
     } catch (e) { console.warn("Spawn Error: " + e); }
 });
@@ -56,16 +58,19 @@ function initializePlayer(player) {
 // --- System Loop (Main Cycle) ---
 
 system.runInterval(() => {
-    // 1. Player Loop (安全化)
-    // ※ try-catchをforEachの中に移動し、一人エラーが出ても全員止まらないようにする
-    world.getAllPlayers().forEach(player => {
-        try {
+   system.runInterval(() => {
+    try {
+        // 1. Player Loop
+        world.getAllPlayers().forEach(player => {
             if (!player.isValid()) return;
 
-            const level = player.getDynamicProperty("deepcraft:level") || 1;
-            const xp = player.getDynamicProperty("deepcraft:xp") || 0;
+            // データ自動修復
+            let level = player.getDynamicProperty("deepcraft:level");
+            if (typeof level !== 'number' || level < 1) { level = 1; player.setDynamicProperty("deepcraft:level", 1); }
+            let xp = player.getDynamicProperty("deepcraft:xp");
+            if (typeof xp !== 'number' || xp < 0) { xp = 0; player.setDynamicProperty("deepcraft:xp", 0); }
+
             const reqXp = getXpCostForLevel(level);
-            
             const intelligence = player.getDynamicProperty("deepcraft:intelligence") || 0;
             const willpower = player.getDynamicProperty("deepcraft:willpower") || 0;
 
@@ -74,10 +79,16 @@ system.runInterval(() => {
             let currentEther = player.getDynamicProperty("deepcraft:ether") || 0;
             const regenRate = CONFIG.ETHER_REGEN_BASE + (willpower * CONFIG.ETHER_REGEN_PER_WILL);
             const tickRegen = regenRate / 10; 
-            
             if (currentEther < maxEther) {
                 currentEther = Math.min(maxEther, currentEther + tickRegen);
                 player.setDynamicProperty("deepcraft:ether", currentEther);
+            }
+
+            // ★コンバットタイマー処理 (減算)
+            let combatTimer = player.getDynamicProperty("deepcraft:combat_timer") || 0;
+            if (combatTimer > 0) {
+                combatTimer = Math.max(0, combatTimer - 0.1);
+                player.setDynamicProperty("deepcraft:combat_timer", combatTimer);
             }
 
             // HUD Display
@@ -89,35 +100,33 @@ system.runInterval(() => {
             const etherBarDisplay = "§b" + "■".repeat(etherFill) + "§8" + "■".repeat(etherBarLen - etherFill);
             const gold = player.getDynamicProperty("deepcraft:gold") || 0;
 
-            player.onScreenDisplay.setActionBar(
-                `§cHP: ${currentHP}/${maxHP}   ` +
-                `§3Ether: ${etherBarDisplay} ${Math.floor(currentEther)}/${maxEther}\n` +
-                `§eLv.${level}   §fXP:${xp}/${reqXp}   §6${gold} G`
-            );
+            // ★HUDテキスト構築
+            let hudText = `§cHP: ${currentHP}/${maxHP}   ` +
+                          `§3Ether: ${etherBarDisplay} ${Math.floor(currentEther)}/${maxEther}\n` +
+                          `§eLv.${level}   §fXP:${xp}/${reqXp}   §6${gold} G`;
             
-            // バニラHP回復（念のため）
-            const vanillaHp = player.getComponent("minecraft:health");
-            if (vanillaHp && vanillaHp.currentValue < 100) vanillaHp.resetToMax();
+            // 戦闘中は赤文字を追加表示
+            if (combatTimer > 0) {
+                hudText += `\n§c§l⚔ COMBAT: ${combatTimer.toFixed(1)}s ⚔`;
+            }
 
+            player.onScreenDisplay.setActionBar(hudText);
+            
             applyEquipmentPenalties(player);
             applyNumericalPassives(player);
             applyStatsToEntity(player);
+        });
 
-        } catch (e) {
-            // 個別のプレイヤーエラーはここで吸収し、他プレイヤーに影響させない
-            // console.warn(`Player Loop Error (${player.name}): ${e}`);
-        }
-    });
-
-    // 2. Boss Loop
-    try {
+        // 2. Boss Loop
         world.getDimension("overworld").getEntities({ tags: ["deepcraft:boss"] }).forEach(boss => {
             updateMobNameTag(boss);
             processBossSkillAI(boss);
         });
-    } catch (e) { console.warn("Boss Loop Error: " + e); }
 
-}, 2); // 0.1秒ごとに実行
+    } catch (e) {
+        console.warn("System Loop Error: " + e);
+    }
+}, 2);
 
 function getXpCostForLevel(level) {
     return CONFIG.XP_BASE_COST + (level * CONFIG.XP_LEVEL_MULTIPLIER);
@@ -360,8 +369,18 @@ function calculateEntityStats(entity) {
 world.afterEvents.itemUse.subscribe((ev) => {
     const player = ev.source;
     const item = ev.itemStack;
-    if (item.typeId === "minecraft:compass") { openMenuHub(player); return; }
+    if (item.typeId === "minecraft:compass") { 
+        const combatTimer = player.getDynamicProperty("deepcraft:combat_timer") || 0;
+        if (combatTimer > 0) {
+            player.playSound("note.bass");
+            player.sendMessage(`§c§l戦闘中はメニューを開けません！ (§c${combatTimer.toFixed(1)}s§c)`);
+            return;
+        }
 
+        openMenuHub(player);
+        return;
+    }
+    
     const customId = item.getDynamicProperty("deepcraft:item_id");
     if (customId) {
         const def = EQUIPMENT_POOL[customId];
@@ -398,103 +417,118 @@ system.afterEvents.scriptEventReceive.subscribe((ev) => {
 //  (No Reset, No Cooldown)
 // ==========================================
 
+// --- Combat Logic ---
+
 world.afterEvents.entityHurt.subscribe((ev) => {
-    const victim = ev.hurtEntity;
-    const attacker = ev.damageSource.damagingEntity;
-    const damageAmount = ev.damage;
+    try {
+        const victim = ev.hurtEntity;
+        const attacker = ev.damageSource.damagingEntity;
+        const damageAmount = ev.damage;
+        const cause = ev.damageSource.cause;
 
-    // ループ防止: システムによる強制キル（9999ダメージ）は無視する
-    if (damageAmount >= 9999) return;
+        // ★修正: システムキルや自殺の場合は処理しない (コンバットループ防止)
+        if (damageAmount >= 9999 || cause === "suicide" || cause === "override" || cause === "void") return;
 
-    // --- [削除] 無敵時間チェック ---
-    // --- [削除] バニラHPの全回復 ---
-
-    // 1. ステータス計算
-    const victimStats = calculateEntityStats(victim);
-    
-    // 2. ダメージ計算
-    let finalDamage = 0;
-    let isCritical = false;
-
-    // A. 攻撃側
-    if (attacker && attacker.typeId === "minecraft:player") {
-        const attackerStats = calculateEntityStats(attacker);
-        const equipment = attacker.getComponent("equippable");
-        const mainHand = equipment.getEquipment(EquipmentSlot.Mainhand);
-        
-        if (!checkReq(attacker, mainHand).valid) {
-            attacker.playSound("random.break");
-            finalDamage = 1; 
-        } else {
-            let attack = attackerStats.atk;
-            if (Math.random() < attackerStats.critChance) {
-                isCritical = true;
-                attack *= attackerStats.critMult;
-            }
-            finalDamage = attack;
+        // コンバットモード開始判定
+        // (キルコマンド以外でのダメージのみ反応する)
+        if (victim.typeId === "minecraft:player") {
+            victim.setDynamicProperty("deepcraft:combat_timer", CONFIG.COMBAT.COMBAT_MODE_DURATION);
+            // 音はうるさすぎないように調整
+            // victim.playSound("random.click", { pitch: 0.5, volume: 0.5 }); 
         }
-        if (attacker.hasTag("talent:vampirism")) {
-            const cur = attacker.getDynamicProperty("deepcraft:hp") || 100;
-            const max = attacker.getDynamicProperty("deepcraft:max_hp") || 100;
-            attacker.setDynamicProperty("deepcraft:hp", Math.min(cur + 2, max));
-        }
-    } else {
-        finalDamage = damageAmount; 
-    }
-
-    // B. 防御側
-    if (victim.typeId === "minecraft:player") {
-        let evasionChance = 0;
-        if (victim.hasTag("talent:evasion")) evasionChance += 0.15;
-        evasionChance += ((victim.getDynamicProperty("deepcraft:agility")||0) * 0.001);
-
-        if (Math.random() < evasionChance) {
-            victim.playSound("random.orb");
-            victim.sendMessage("§a回避！");
-            // 回避時もダメージは通さない（仮想HPを減らさない）
-            return; 
-        }
-    }
-
-    finalDamage = Math.max(CONFIG.COMBAT.MIN_DAMAGE, finalDamage - victimStats.def);
-    finalDamage = Math.floor(finalDamage);
-
-    // 反射
-    if (attacker) {
-        if (victim.hasTag("talent:thorns_aura")) {
-             const attCur = attacker.getDynamicProperty("deepcraft:hp");
-             if (attCur) attacker.setDynamicProperty("deepcraft:hp", Math.max(0, attCur - 2));
-        }
-        if (victim.hasTag("talent:thorns_master")) {
-             const attCur = attacker.getDynamicProperty("deepcraft:hp");
-             if (attCur) attacker.setDynamicProperty("deepcraft:hp", Math.max(0, attCur - Math.floor(finalDamage * 0.3)));
-        }
-    }
-
-    // 3. 仮想HPへのダメージ適用
-    const currentHP = victim.getDynamicProperty("deepcraft:hp"); 
-    const actualCurrentHP = (currentHP !== undefined) ? currentHP : victimStats.maxHP;
-    
-    const newHP = actualCurrentHP - finalDamage;
-    victim.setDynamicProperty("deepcraft:hp", newHP);
-
-    if (victim.typeId !== "minecraft:player") {
-        updateMobNameTag(victim);
-    }
-
-    // 死亡判定
-    if (newHP <= 0) {
-        victim.applyDamage(9999);
-        return;
-    }
-
-    // クリティカル演出
-    if (isCritical) {
-        victim.dimension.playSound("random.anvil_land", victim.location, { pitch: 2.0 });
-        victim.dimension.spawnParticle("minecraft:critical_hit_emitter", { x: victim.location.x, y: victim.location.y + 1, z: victim.location.z });
         if (attacker && attacker.typeId === "minecraft:player") {
-            attacker.sendMessage(`§c§lクリティカル！ §r§6${finalDamage} ダメージ`);
+            attacker.setDynamicProperty("deepcraft:combat_timer", CONFIG.COMBAT.COMBAT_MODE_DURATION);
         }
+
+        // 1. ステータス計算
+        const victimStats = calculateEntityStats(victim);
+        let finalDamage = 0;
+        let isCritical = false;
+
+        // A. 攻撃側
+        if (attacker && attacker.typeId === "minecraft:player") {
+            const attackerStats = calculateEntityStats(attacker);
+            const equipment = attacker.getComponent("equippable");
+            const mainHand = equipment.getEquipment(EquipmentSlot.Mainhand);
+            
+            if (!checkReq(attacker, mainHand).valid) {
+                attacker.playSound("random.break");
+                finalDamage = 1; 
+            } else {
+                let attack = attackerStats.atk;
+                if (Math.random() < attackerStats.critChance) {
+                    isCritical = true;
+                    attack *= attackerStats.critMult;
+                }
+                finalDamage = attack;
+            }
+            
+            if (attacker.hasTag("talent:vampirism")) {
+                const cur = attacker.getDynamicProperty("deepcraft:hp") || 100;
+                const max = attacker.getDynamicProperty("deepcraft:max_hp") || 100;
+                attacker.setDynamicProperty("deepcraft:hp", Math.min(cur + 2, max));
+            }
+        } else {
+            // Mob攻撃
+            finalDamage = damageAmount; 
+        }
+
+        // B. 防御側
+        if (victim.typeId === "minecraft:player") {
+            let evasionChance = 0;
+            if (victim.hasTag("talent:evasion")) evasionChance += 0.15;
+            evasionChance += ((victim.getDynamicProperty("deepcraft:agility")||0) * 0.001);
+
+            if (Math.random() < evasionChance) {
+                victim.playSound("random.orb");
+                victim.sendMessage("§a回避！");
+                return;
+            }
+        }
+
+        finalDamage = Math.max(1, finalDamage - victimStats.def);
+        finalDamage = Math.floor(finalDamage);
+
+        // 2. 仮想HPへの適用
+        const currentHP = victim.getDynamicProperty("deepcraft:hp");
+        const actualCurrentHP = (currentHP !== undefined) ? currentHP : victimStats.maxHP;
+        const newHP = actualCurrentHP - finalDamage;
+        
+        victim.setDynamicProperty("deepcraft:hp", newHP);
+
+        if (victim.typeId !== "minecraft:player") {
+            updateMobNameTag(victim);
+        }
+
+        // 3. 死亡判定
+        if (newHP <= 0) {
+            victim.runCommand("kill @s");
+            return;
+        }
+
+        // 4. 反射
+        if (attacker) {
+            if (victim.hasTag("talent:thorns_aura")) {
+                 const attCur = attacker.getDynamicProperty("deepcraft:hp") || 100;
+                 attacker.setDynamicProperty("deepcraft:hp", Math.max(0, attCur - 2));
+            }
+            if (victim.hasTag("talent:thorns_master")) {
+                 const attCur = attacker.getDynamicProperty("deepcraft:hp") || 100;
+                 attacker.setDynamicProperty("deepcraft:hp", Math.max(0, attCur - Math.floor(finalDamage * 0.3)));
+            }
+        }
+
+        // 5. クリティカル演出
+        if (isCritical) {
+            victim.dimension.playSound("random.anvil_land", victim.location, { pitch: 2.0 });
+            victim.dimension.spawnParticle("minecraft:critical_hit_emitter", { x: victim.location.x, y: victim.location.y + 1, z: victim.location.z });
+            if (attacker && attacker.typeId === "minecraft:player") {
+                attacker.sendMessage(`§c§lクリティカル！ §r§6${finalDamage} ダメージ`);
+            }
+        }
+
+    } catch (e) {
+        console.warn("Combat Error: " + e);
     }
 });
 
