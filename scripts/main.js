@@ -19,17 +19,23 @@ world.afterEvents.playerSpawn.subscribe((ev) => {
         if (!player.getDynamicProperty("deepcraft:active_profile")) {
             initializePlayer(player);
         }
-        // スポーン時はHP満タンで開始 (即死防止用の器)
+        // 即死防止用のHP全快
         const hp = player.getComponent("minecraft:health");
         if (hp) hp.resetToMax();
 
-        // ★追加: Hitbox Desync対策
-        // 2 tick (0.1秒) 遅らせてサイズリセットイベントを送ることで、判定ズレを直す
+        // ★追加: 強制スニークによるヒットボックス修正
+        // 2tick待ってからスニークON -> さらに2tick待ってスニークOFF
         system.runTimeout(() => {
             if (player.isValid()) {
-                player.triggerEvent("scale_reset");
+                player.isSneaking = true; // しゃがませる
+                
+
+                // 一瞬後に立ち上がらせる
+                system.runTimeout(() => {
+                    if (player.isValid()) player.isSneaking = false;
+                }, 20);
             }
-        }, 2);
+        }, 20);
 
     } catch (e) { console.warn("Spawn Error: " + e); }
 });
@@ -550,7 +556,7 @@ world.afterEvents.entityDie.subscribe((ev) => {
             if (droppedItems.length > 0) {
                 system.runTimeout(() => {
                     try {
-                        const spawnLoc = { x: deathLocation.x, y: deathLocation.y + 1.0, z: deathLocation.z };
+                        const spawnLoc = { x: deathLocation.x, y: deathLocation.y + 3.0 , z: deathLocation.z };
                         const soul = deathDimension.spawnEntity("minecraft:chest_minecart", spawnLoc);
                         soul.nameTag = "§b魂 (Soul)";
                         
@@ -767,7 +773,7 @@ function openMenuHub(player) {
     form.button(20, "§6§lクエストログ", ["§r§7進行中のクエスト"], "minecraft:writable_book");
     form.button(26, "§c§lデバッグ: リセット", ["§r§cプロファイルをリセット"], "minecraft:barrier");
     form.button(24, "§e§lデバッグ: +1000 G", ["§r資金を追加"], "minecraft:sunflower");
-    form.button(25, "§e§lデバッグ: +XP", ["§r+1000 XP"], "minecraft:emerald");
+    form.button(25, "§e§lデバッグ: +XP", ["§r+10000XP"], "minecraft:emerald");
 
     form.show(player).then(res => {
         if (res.canceled) return;
@@ -784,7 +790,7 @@ function openMenuHub(player) {
             player.playSound("random.orb");
             openMenuHub(player);
         }
-        if (res.selection === 25) { addXP(player, 1000); openMenuHub(player); }
+        if (res.selection === 25) { addXP(player, 10000); openMenuHub(player); }
     });
 }
 
@@ -952,7 +958,7 @@ function upgradeStat(player, statKey) {
     const invested = player.getDynamicProperty("deepcraft:invested_points") || 0;
     const level = player.getDynamicProperty("deepcraft:level") || 1;
     
-    // 1. 限界チェック
+    // 1. 限界チェック (Lv20以上かつポイントも振り切っていたらブロック)
     if (level >= 20 && invested >= CONFIG.STAT_POINTS_PER_LEVEL) {
         player.playSound("note.bass");
         player.sendMessage("§a§lこれ以上の強化は不可能です！(限界到達)");
@@ -972,54 +978,44 @@ function upgradeStat(player, statKey) {
     }
 
     if (currentXP < cost) { 
-        player.sendMessage("§cXPが足りません！"); 
+        player.sendMessage(`§cXPが足りません！ 必要: ${cost}, 所持: ${currentXP}`); 
         openStatusMenu(player); 
         return; 
     }
 
-    // 2. 値の計算
+    // 2. 計算と保存
     const nextInvested = invested + 1;
-
-    // 3. ★重要: 先にデータを全て保存する (エラーで止まる前に確定させる)
     player.setDynamicProperty("deepcraft:xp", currentXP - cost);
     player.setDynamicProperty(`deepcraft:${statKey}`, currentVal + 1);
-
-    // レベルアップするかどうかで保存内容を変える
-    if (nextInvested >= CONFIG.STAT_POINTS_PER_LEVEL) {
-        // レベルアップルート: ポイント0、レベル+1
-        player.setDynamicProperty("deepcraft:invested_points", 0);
-        if (level < 20) {
-            player.setDynamicProperty("deepcraft:level", level + 1);
-            const pending = player.getDynamicProperty("deepcraft:pending_card_draws") || 0;
-            player.setDynamicProperty("deepcraft:pending_card_draws", pending + 1);
-        }
-    } else {
-        // 通常ルート: ポイント加算
-        player.setDynamicProperty("deepcraft:invested_points", nextInvested);
-    }
-
     player.playSound("random.levelup");
     player.sendMessage(`§a強化完了: ${CONFIG.STATS[statKey]} -> ${currentVal + 1}`);
+    try { applyStatsToEntity(player); } catch(e) {}
 
-    // 4. ステータス反映 (ここがplayer.json不整合でエラーになりやすいので try-catch で守る)
-    try {
-        applyStatsToEntity(player);
-    } catch (e) {
-        console.warn("Stats Apply Error: " + e); // エラーログだけ出して処理は続ける
-    }
-
-    // 5. メニュー遷移
+    // 3. 分岐処理
     if (nextInvested >= CONFIG.STAT_POINTS_PER_LEVEL) {
         if (level < 20) {
+            // 通常レベルアップ: ポイントを0にリセットして次へ
+            player.setDynamicProperty("deepcraft:invested_points", 0);
+            player.setDynamicProperty("deepcraft:level", level + 1);
+            
+            let pending = player.getDynamicProperty("deepcraft:pending_card_draws") || 0;
+            player.setDynamicProperty("deepcraft:pending_card_draws", pending + 1);
+            
             player.sendMessage(`§6§lレベルアップ！ §r(Lv.${level + 1})`);
             player.playSound("ui.toast.challenge_complete");
             system.runTimeout(() => openMenuHub(player), 20);
         } else {
+            // ★修正: カンスト到達時はポイントをリセットせず「15」のまま保存する
+            // これにより、次回のクリック時に冒頭の「限界チェック」で弾かれるようになる
+            player.setDynamicProperty("deepcraft:invested_points", nextInvested);
+            
             player.sendMessage("§6§l最大レベルボーナス完了！");
             player.playSound("ui.toast.challenge_complete");
             system.runTimeout(() => openMenuHub(player), 20);
         }
     } else {
+        // まだ途中: 加算したポイントを保存
+        player.setDynamicProperty("deepcraft:invested_points", nextInvested);
         openStatusMenu(player);
     }
 }
@@ -1027,31 +1023,68 @@ function upgradeStat(player, statKey) {
 function openCardSelection(player) {
     const form = new ChestFormData("small");
     form.title("§lタレント選択");
-    const availableCards = CARD_POOL.filter(card => {
-        const hasTalent = player.hasTag(`talent:${card.id}`);
-        const conditionsMet = card.condition(player);
-        return conditionsMet && !hasTalent;
-    });
-    const shuffled = availableCards.sort(() => 0.5 - Math.random());
-    const selection = shuffled.slice(0, 3);
+
+    // ★修正: 保存された抽選データがあるか確認
+    let selectionIds = [];
+    const tempJson = player.getDynamicProperty("deepcraft:temp_talent_roll");
+    
+    if (tempJson) {
+        // データがあればそれを使う（リロール防止）
+        try { selectionIds = JSON.parse(tempJson); } catch(e){}
+    } 
+    
+    // データがない（または壊れている）場合は新規抽選
+    if (!selectionIds || selectionIds.length === 0) {
+        const availableCards = CARD_POOL.filter(card => {
+            const hasTalent = player.hasTag(`talent:${card.id}`);
+            const conditionsMet = card.condition(player);
+            return conditionsMet && !hasTalent;
+        });
+        const shuffled = availableCards.sort(() => 0.5 - Math.random());
+        const selectedCards = shuffled.slice(0, 3);
+        
+        if (selectedCards.length === 0) { 
+            const filler = CARD_POOL.find(c => c.id === "basic_training"); 
+            if (filler) selectedCards.push(filler); 
+        }
+        
+        // IDリストにして保存
+        selectionIds = selectedCards.map(c => c.id);
+        player.setDynamicProperty("deepcraft:temp_talent_roll", JSON.stringify(selectionIds));
+    }
+
+    // IDからカード情報を復元して表示
     const positions = [11, 13, 15];
-    if (selection.length === 0) { const filler = CARD_POOL.find(c => c.id === "basic_training"); if (filler) selection.push(filler); }
-    selection.forEach((card, index) => {
+    selectionIds.forEach((cardId, index) => {
+        const card = CARD_POOL.find(c => c.id === cardId);
+        if (!card) return;
+
         let icon = "minecraft:enchanted_book";
         if (card.rarity === "legendary") icon = "minecraft:nether_star";
         form.button(positions[index], card.name, [card.description, `§o${card.rarity.toUpperCase()}`, `§8条件: ${card.conditionText}`], icon, 1, 0, true);
     });
+    
     form.show(player).then((response) => {
         if (response.canceled) { player.sendMessage("§cタレントを選択してください。"); openMenuHub(player); return; }
         const idx = positions.indexOf(response.selection);
-        if (idx !== -1 && selection[idx]) { applyCardEffect(player, selection[idx]); }
+        // 選ばれたIDを特定して適用へ
+        if (idx !== -1 && selectionIds[idx]) { 
+            const card = CARD_POOL.find(c => c.id === selectionIds[idx]);
+            if (card) applyCardEffect(player, card); 
+        }
     });
 }
 
 function applyCardEffect(player, card) {
     let pending = player.getDynamicProperty("deepcraft:pending_card_draws") || 0;
     if (pending > 0) player.setDynamicProperty("deepcraft:pending_card_draws", pending - 1);
+    
+    // ★追加: 決定したので一時保存データを消去
+    player.setDynamicProperty("deepcraft:temp_talent_roll", undefined);
+
     player.sendMessage(`§aタレント獲得: ${card.name}`);
+    
+    // (以下は変更なし)
     if (card.id !== "basic_training") player.addTag(`talent:${card.id}`);
     if (card.type === "xp") {
         addXP(player, card.value);
