@@ -7,11 +7,19 @@ export const CONFIG = {
     DEATH_ITEM_DROP_RATE: 0.5,
     MAX_PROFILES: 3,
 
-    // ★追加: エーテル設定
-    ETHER_BASE: 20,          // 知力0でも持っている最低エーテル
-    ETHER_PER_INT: 2.5,      // 知力1あたりの最大エーテル増加量
-    ETHER_REGEN_BASE: 1.0,   // 1秒あたりの基本回復量
-    ETHER_REGEN_PER_WILL: 0.2, // Willpower 1あたりの回復ボーナス(隠し味)
+    // Ether System
+    ETHER_BASE: 20,
+    ETHER_PER_INT: 2.5,
+    ETHER_REGEN_BASE: 1.0,
+    ETHER_REGEN_PER_WILL: 0.2,
+
+    // ★追加: Combat System Constants
+    COMBAT: {
+        BASE_CRIT_CHANCE: 0.05, // 基礎クリティカル率 5%
+        BASE_CRIT_MULT: 1.5,    // 基礎クリティカル倍率 1.5倍
+        DEFENSE_CONSTANT: 0.5,  // Fortitudeの防御への寄与率
+        MIN_DAMAGE: 1           // 最低保証ダメージ
+    },
 
     STATS: {
         strength: "Strength",

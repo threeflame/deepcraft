@@ -2,14 +2,12 @@
 import { world, system, ItemStack, EquipmentSlot } from "@minecraft/server";
 import { ChestFormData } from "./extensions/forms.js";
 
-// Data Imports
 import { CONFIG } from "./config.js";
 import { CARD_POOL } from "./data/talents.js";
 import { QUEST_POOL } from "./data/quests.js";
 import { EQUIPMENT_POOL } from "./data/equipment.js";
 import { SKILL_POOL } from "./data/skills.js";
 import { MOB_POOL } from "./data/mobs.js";
-
 // --- Initialization ---
 
 world.afterEvents.playerSpawn.subscribe((ev) => {
@@ -26,19 +24,15 @@ function initializePlayer(player) {
     player.sendMessage("§aDeepCraft System Initialized.");
 }
 
-// --- System Loop (Main Cycle) ---
-
 system.runInterval(() => {
-    // 1. Player Loop
     world.getAllPlayers().forEach(player => {
         const level = player.getDynamicProperty("deepcraft:level") || 1;
         const xp = player.getDynamicProperty("deepcraft:xp") || 0;
         const reqXp = getXpCostForLevel(level);
         
-        const intelligence = player.getDynamicProperty("deepcraft:intelligence") || 0; // ★0に変更
-        const willpower = player.getDynamicProperty("deepcraft:willpower") || 0;       // ★0に変更
+        const intelligence = player.getDynamicProperty("deepcraft:intelligence") || 0;
+        const willpower = player.getDynamicProperty("deepcraft:willpower") || 0;
 
-        // ★ Ether Logic
         const maxEther = Math.floor(CONFIG.ETHER_BASE + (intelligence * CONFIG.ETHER_PER_INT));
         let currentEther = player.getDynamicProperty("deepcraft:ether") || 0;
 
@@ -50,7 +44,6 @@ system.runInterval(() => {
             player.setDynamicProperty("deepcraft:ether", currentEther);
         }
 
-        // ★ HUD Display
         const etherPercent = Math.max(0, Math.min(1, currentEther / maxEther));
         const etherBarLen = 10; 
         const etherFill = Math.ceil(etherPercent * etherBarLen);
@@ -61,22 +54,18 @@ system.runInterval(() => {
             `§3Ether: ${etherBarDisplay} §b${Math.floor(currentEther)}§3/§b${maxEther}`
         );
 
-        // Checks
         applyEquipmentPenalties(player);
         applyNumericalPassives(player);
         applyStatsToEntity(player);
     });
 
-    // 2. Boss Loop
     world.getDimension("overworld").getEntities({ tags: ["deepcraft:boss"] }).forEach(boss => {
         updateBossNameTag(boss);
         processBossSkillAI(boss);
     });
-
 }, 5);
 
 function getXpCostForLevel(level) {
-    // Lv20以降もコストは増え続ける（あるいは固定するかはお好みで。ここでは計算式通り増やす）
     return CONFIG.XP_BASE_COST + (level * CONFIG.XP_LEVEL_MULTIPLIER);
 }
 // --- Boss Logic (変更なし) ---
@@ -696,106 +685,207 @@ function resetCurrentProfile(player) {
     player.sendMessage(`§c[DEBUG] Profile Slot ${currentSlot} has been reset.`);
 }
 
-// --- Combat Logic (変更なし) ---
+// ==========================================
+//  ⚔️ New Combat Logic (Calculation & Apply)
+// ==========================================
+
+// ループ防止用のタグ
+const SYSTEM_DMG_TAG = "deepcraft:system_damage";
+
 world.afterEvents.entityHurt.subscribe((ev) => {
     const victim = ev.hurtEntity;
     const attacker = ev.damageSource.damagingEntity;
-    const damageTaken = ev.damage;
+    const damageAmount = ev.damage;
 
-    if (victim.hasTag("deepcraft:boss")) {
-        updateBossNameTag(victim);
-        const bossId = victim.getDynamicProperty("deepcraft:boss_id");
-        const bossDef = MOB_POOL[bossId];
-        if (bossDef && bossDef.skills && Math.random() < 0.15) {
-            const skill = bossDef.skills[Math.floor(Math.random() * bossDef.skills.length)];
-            executeBossSkill(victim, skill);
-        }
-    }
+    // 1. ループ防止チェック (システムによるダメージなら無視)
+    // ※ afterEventsではdamageSourceのタグを直接見れない場合があるため、
+    //    ダメージ適用時にVictimに一瞬タグを付けるなどの工夫も一般的だが、
+    //    今回は「バニラダメージの回復」で判定を行う。
+    //    もし「回復処理後のHP」が「減る前」と同じなら、それは処理済みとみなせるが、
+    //    最も確実なのは、applyDamageの直前にフラグを管理すること。
+    //    ただしScriptAPIの仕様上、entityHurt内でapplyDamageすると再発火は避けられない。
+    //    「1tick以内に連続してダメージ処理を行わない」というクールダウンで制御する。
+    
+    const tick = system.currentTick;
+    const lastHurtTick = victim.getDynamicProperty("deepcraft:last_hurt_tick") || 0;
+    
+    // 同じtick内での連続ダメージ（システムによる追撃）は無視する
+    if (lastHurtTick === tick) return; 
+    
+    // バニラのダメージ発生を検知 -> 処理開始
+    victim.setDynamicProperty("deepcraft:last_hurt_tick", tick);
 
+    // 2. バニラダメージの無効化 (即時回復)
+    const hp = victim.getComponent("minecraft:health");
+    if (!hp || hp.currentValue <= 0) return; // 死んでたら処理しない
+    
+    // 回復して「ダメージ0」の状態に戻す
+    // ※即死ダメージだと回復が間に合わないが、高HP設定なので基本OK
+    hp.setCurrentValue(Math.min(hp.currentValue + damageAmount, hp.effectiveMax));
+
+    // 3. パラメータ計算 & ダメージ決定
+    let finalDamage = 0;
+    let isCritical = false;
+
+    // A. 攻撃者がプレイヤーの場合
     if (attacker && attacker.typeId === "minecraft:player") {
+        // 装備取得
         const equipment = attacker.getComponent("equippable");
-        const weapon = equipment.getEquipment(EquipmentSlot.Mainhand);
+        const mainHand = equipment.getEquipment(EquipmentSlot.Mainhand);
+        const equipDef = getEquipmentStats(mainHand);
         
-        if (!checkReq(attacker, weapon).valid) {
+        // なまくらチェック
+        if (!checkReq(attacker, mainHand).valid) {
             attacker.playSound("random.break");
-            if (victim.getComponent("minecraft:health")) {
-                const vHealth = victim.getComponent("minecraft:health");
-                if (vHealth.currentValue > 0) {
-                    const refund = Math.max(0, damageTaken - 1); 
-                    vHealth.setCurrentValue(Math.min(vHealth.currentValue + refund, vHealth.effectiveMax));
-                }
+            // ダメージ1で確定 (ペナルティ)
+            finalDamage = 1;
+        } else {
+            // ステータス取得
+            const str = attacker.getDynamicProperty("deepcraft:strength") || 0;
+            const agi = attacker.getDynamicProperty("deepcraft:agility") || 0;
+            const int = attacker.getDynamicProperty("deepcraft:intelligence") || 0;
+            const level = attacker.getDynamicProperty("deepcraft:level") || 1;
+
+            // 攻撃力計算
+            // Base: Lv + Str*0.5
+            // Weapon: atk
+            let attack = level + (str * 0.5) + equipDef.atk;
+
+            // タレント補正 (Attack)
+            if (attacker.hasTag("talent:brute_force")) attack += 2;
+            if (attacker.hasTag("talent:glass_cannon")) attack *= 1.5;
+            if (attacker.hasTag("talent:sharp_blade")) attack *= 1.1;
+            
+            const attackerHp = attacker.getComponent("minecraft:health");
+            if (attacker.hasTag("talent:berserker") && attackerHp && attackerHp.currentValue < attackerHp.effectiveMax * 0.3) {
+                attack *= 1.5;
             }
-            return;
+            if (attacker.hasTag("talent:assassin") && attacker.isSneaking) {
+                attack *= 2.0;
+            }
+
+            // クリティカル判定
+            // Chance: Base(5%) + Agi*0.1% + Int*0.05%
+            let critChance = CONFIG.COMBAT.BASE_CRIT_CHANCE + (agi * 0.001) + (int * 0.0005);
+            if (attacker.hasTag("talent:eagle_eye")) critChance += 0.1;
+
+            if (Math.random() < critChance) {
+                isCritical = true;
+                // Crit Multiplier: Base(1.5) + Str*0.005
+                let critMult = CONFIG.COMBAT.BASE_CRIT_MULT + (str * 0.005);
+                attack *= critMult;
+            }
+
+            finalDamage = attack;
         }
 
-        let bonus = 0;
-        let multiplier = 1.0;
-
-        if (attacker.hasTag("talent:brute_force")) bonus += 2;
-        if (attacker.hasTag("talent:battle_cry")) bonus += 3;
-        if (attacker.hasTag("talent:sharp_blade")) multiplier += 0.1;
-        if (attacker.hasTag("talent:glass_cannon")) multiplier += 1.0;
-        
-        const aHp = attacker.getComponent("minecraft:health");
-        if (attacker.hasTag("talent:berserker") && aHp.currentValue < aHp.effectiveMax * 0.3) multiplier += 0.5;
-        if (attacker.hasTag("talent:assassin") && attacker.isSneaking) multiplier += 1.0;
-
-        if (bonus > 0 || multiplier > 1.0) {
-            const extraDmg = Math.floor(damageTaken * (multiplier - 1)) + bonus;
-            if (extraDmg > 0) victim.applyDamage(extraDmg);
-        }
-
+        // 吸血 (Vampirism)
         if (attacker.hasTag("talent:vampirism")) {
+            const aHp = attacker.getComponent("minecraft:health");
             if (aHp && aHp.currentValue > 0) aHp.setCurrentValue(Math.min(aHp.currentValue + 2, aHp.effectiveMax));
         }
+
+    } else {
+        // Mobからの攻撃 (とりあえずバニラダメージをベースにする)
+        // ※Mobの攻撃力も定義する場合はここでMOB_POOLを参照する
+        finalDamage = damageAmount;
     }
 
-    if (victim && victim.typeId === "minecraft:player") {
-        const vHealth = victim.getComponent("minecraft:health");
-        if (!vHealth || vHealth.currentValue <= 0) return;
+    // B. 防御者がプレイヤーの場合
+    if (victim.typeId === "minecraft:player") {
+        // 回避 (Evasion)
+        let evasionChance = 0;
+        if (victim.hasTag("talent:evasion")) evasionChance += 0.15;
+        // Agilityによる回避加算 (例: Agi 100 で +10%)
+        const vAgi = victim.getDynamicProperty("deepcraft:agility") || 0;
+        evasionChance += (vAgi * 0.001);
 
-        if (victim.hasTag("talent:evasion") && Math.random() < 0.15) {
-            vHealth.setCurrentValue(Math.min(vHealth.currentValue + damageTaken, vHealth.effectiveMax));
+        if (Math.random() < evasionChance) {
             victim.playSound("random.orb");
             victim.sendMessage("§aDodge!");
-            return; 
+            return; // ダメージ0で終了
         }
 
-        const cause = ev.damageSource.cause;
-        if (["fire", "lava", "magma"].includes(cause) && (victim.hasTag("talent:fire_walker") || victim.hasTag("talent:elemental_lord"))) {
-            vHealth.setCurrentValue(Math.min(vHealth.currentValue + damageTaken, vHealth.effectiveMax));
-            return;
-        }
-        if (cause === "fall" && victim.hasTag("talent:acrobat")) {
-            vHealth.setCurrentValue(Math.min(vHealth.currentValue + damageTaken, vHealth.effectiveMax));
-            return;
-        }
+        // 防御力計算
+        const vDef = victim.getDynamicProperty("deepcraft:defense") || 0;
+        const vFort = victim.getDynamicProperty("deepcraft:fortitude") || 0;
+        
+        // 装備防御力 (簡易的に全装備走査)
+        const vEquip = victim.getComponent("equippable");
+        let equipDefVal = 0;
+        [EquipmentSlot.Head, EquipmentSlot.Chest, EquipmentSlot.Legs, EquipmentSlot.Feet].forEach(slot => {
+            equipDefVal += getEquipmentStats(vEquip.getEquipment(slot)).def;
+        });
 
-        let flatReduction = 0;
-        let defense = victim.getDynamicProperty("deepcraft:defense") || 1;
+        // Defense: (Def * 1.0) + (Fort * 0.5) + Equip
+        let defense = vDef + (vFort * CONFIG.COMBAT.DEFENSE_CONSTANT) + equipDefVal;
 
-        if (victim.hasTag("talent:tough_skin")) flatReduction += 1;
-        if (victim.hasTag("talent:iron_wall")) flatReduction += 2;
-        if (victim.hasTag("talent:last_stand") && vHealth.currentValue < vHealth.effectiveMax * 0.3) defense += 50;
-
-        let reducedAmount = 0;
-        if (defense > 1) {
-            const reductionRate = defense / (defense + 50);
-            reducedAmount = Math.floor(damageTaken * reductionRate);
+        // タレント補正 (Defense)
+        if (victim.hasTag("talent:tough_skin")) defense += 2;
+        if (victim.hasTag("talent:iron_wall")) defense += 5;
+        if (victim.hasTag("talent:last_stand") && hp.currentValue < hp.effectiveMax * 0.3) {
+            defense *= 1.5;
         }
 
-        const totalBlocked = reducedAmount + flatReduction;
-        if (totalBlocked > 0) {
-            const actualHeal = Math.min(totalBlocked, damageTaken);
-            vHealth.setCurrentValue(Math.min(vHealth.currentValue + actualHeal, vHealth.effectiveMax));
-        }
+        // 最終ダメージ計算 (減算方式)
+        finalDamage = Math.max(CONFIG.COMBAT.MIN_DAMAGE, finalDamage - defense);
 
+        // 反射 (Thorns)
         if (attacker) {
             if (victim.hasTag("talent:thorns_aura")) attacker.applyDamage(2);
-            if (victim.hasTag("talent:thorns_master")) attacker.applyDamage(Math.floor(damageTaken * 0.3));
+            if (victim.hasTag("talent:thorns_master")) attacker.applyDamage(Math.floor(finalDamage * 0.3));
+        }
+    }
+
+    // 4. ダメージ適用 & 演出
+    // 整数化
+    finalDamage = Math.floor(finalDamage);
+    
+    // HP操作でダメージを与える (applyDamageだと再帰する可能性があるが、冒頭のtickチェックで防げているはず)
+    // しかし念のため、applyDamageを使うとノックバックが二重にかかる(バニラ+スクリプト)恐れがあるが、
+    // ここでは「HP直接減算」で処理する。
+    // ※HP直接減算のデメリット: 死因が「魔法」扱いになる、防具の耐久が減らない
+    // ※今回は「計算通りの数値を出す」ことを優先し、applyDamageを使う。tickガードがあるのでループはしない。
+    
+    if (finalDamage > 0) {
+        // 現在のHPから引く (applyDamageは使わず直接操作で安全性を取る)
+        // ※applyDamageを使うと、防具の軽減が「再度」計算されてしまうため（バニラ防具の場合）、
+        //   DeepCraftの「完全カスタム計算」においては直接操作が正解。
+        
+        const newHp = Math.max(0, hp.currentValue - finalDamage);
+        hp.setCurrentValue(newHp);
+
+        // 死亡判定 (setCurrentValueで0になっても死なない場合があるため)
+        if (newHp <= 0 && victim.typeId === "minecraft:player") {
+            // プレイヤーならキル処理（killコマンド等）が必要かもしれないが、
+            // HP0になれば基本死ぬ。死なない場合は applyDamage(1000) などでトドメ
+            victim.applyDamage(9999); 
+        }
+
+        // クリティカル演出
+        if (isCritical) {
+            victim.dimension.playSound("random.anvil_land", victim.location, { pitch: 2.0 });
+            victim.dimension.spawnParticle("minecraft:critical_hit_emitter", {
+                x: victim.location.x,
+                y: victim.location.y + 1,
+                z: victim.location.z
+            });
+            if (attacker && attacker.typeId === "minecraft:player") {
+                attacker.sendMessage(`§c§lCRITICAL! §r§6${finalDamage} Dmg`);
+            }
         }
     }
 });
+
+// 装備のStatsを取得するヘルパー
+function getEquipmentStats(itemStack) {
+    if (!itemStack) return { atk: 0, def: 0 };
+    const id = itemStack.getDynamicProperty("deepcraft:item_id");
+    if (!id) return { atk: 0, def: 0 };
+    const def = EQUIPMENT_POOL[id];
+    if (!def || !def.stats) return { atk: 0, def: 0 };
+    return def.stats;
+}
 
 world.afterEvents.entityDie.subscribe((ev) => {
     const victim = ev.deadEntity;
@@ -861,3 +951,29 @@ world.afterEvents.entityDie.subscribe((ev) => {
         }
     }
 });
+// 既存の関数群の再掲（変更なし部分は省略）
+function updateBossNameTag(boss) { /*...*/ }
+function processBossSkillAI(boss) { /*...*/ }
+function executeBossSkill(boss, skill) { /*...*/ }
+function executeSkill(player, skillId) { /*...*/ }
+function giveCustomItem(player, itemId) { /*...*/ }
+function summonBoss(player, bossId) { /*...*/ }
+function createCustomItem(itemId) { /*...*/ }
+function addXP(player, amount) { /*...*/ }
+function applyNumericalPassives(player) { /*...*/ }
+function applyEquipmentPenalties(player) { /*...*/ }
+function checkReq(player, item) { /*...*/ }
+function applyStatsToEntity(player) { /*...*/ }
+function saveProfile(player, slot) { /*...*/ }
+function loadProfile(player, slot) { /*...*/ }
+function openMenuHub(player) { /*...*/ }
+function openProfileMenu(player) { /*...*/ }
+function openStatusMenu(player) { /*...*/ }
+function openTalentViewer(player) { /*...*/ }
+function openQuestMenu(player) { /*...*/ }
+function upgradeStat(player, statKey) { /*...*/ }
+function processLevelUp(player) { /*...*/ }
+function openCardSelection(player) { /*...*/ }
+function applyCardEffect(player, card) { /*...*/ }
+function resetCurrentProfile(player) { /*...*/ }
+// ...
