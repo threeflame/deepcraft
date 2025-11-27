@@ -1,5 +1,5 @@
 // BP/scripts/data/market.js
-import { world, system, ItemStack } from "@minecraft/server";
+import { world, system, ItemStack, EquipmentSlot } from "@minecraft/server";
 import { ModalFormData } from "@minecraft/server-ui";
 import { ChestFormData } from "../extensions/forms.js";
 import { EQUIPMENT_POOL } from "./equipment.js";
@@ -9,12 +9,12 @@ const MARKET_CONFIG = {
     TAX_RATE: 0.05,           // 手数料 5%
     EXPIRE_HOURS: 24,         // 掲載期間 24時間
     MAX_LISTINGS_PER_PLAYER: 5, // 1人あたりの最大出品数
-    ITEMS_PER_DATA_CHUNK: 50, // 1つのプロパティに保存する最大件数 (32KB対策)
-    MAX_CHUNKS: 10            // 最大プロパティ数 (50 * 10 = 500件まで)
+    ITEMS_PER_DATA_CHUNK: 50, // 1つのプロパティに保存する最大件数
+    MAX_CHUNKS: 10            // 最大プロパティ数
 };
 
-// --- データ管理クラス (分割保存対応) ---
-class MarketDataManager {
+// --- データ管理クラス ---
+export class MarketDataManager {
     static getAllListings() {
         let allListings = [];
         for (let i = 0; i < MARKET_CONFIG.MAX_CHUNKS; i++) {
@@ -37,16 +37,14 @@ class MarketDataManager {
     }
 
     static saveListings(listings) {
-        // 全データを一旦削除（クリア）
+        // 全データを一旦クリア
         for (let i = 0; i < MARKET_CONFIG.MAX_CHUNKS; i++) {
             world.setDynamicProperty(`deepcraft:market_${i}`, undefined);
         }
-        
-        // チャンクに分割して保存
+        // 分割保存
         for (let i = 0; i < listings.length; i += MARKET_CONFIG.ITEMS_PER_DATA_CHUNK) {
             const chunkIndex = Math.floor(i / MARKET_CONFIG.ITEMS_PER_DATA_CHUNK);
-            if (chunkIndex >= MARKET_CONFIG.MAX_CHUNKS) break; // 上限
-            
+            if (chunkIndex >= MARKET_CONFIG.MAX_CHUNKS) break;
             const chunkData = listings.slice(i, i + MARKET_CONFIG.ITEMS_PER_DATA_CHUNK);
             world.setDynamicProperty(`deepcraft:market_${chunkIndex}`, JSON.stringify(chunkData));
         }
@@ -57,11 +55,9 @@ class MarketDataManager {
         const playerListings = listings.filter(l => l.ownerId === player.id);
         
         if (playerListings.length >= MARKET_CONFIG.MAX_LISTINGS_PER_PLAYER) {
-            player.sendMessage("§c出品数の上限に達しています。");
-            return false;
+            return { success: false, message: "§c出品数の上限に達しています。" };
         }
 
-        // カスタム装備IDがあれば記録
         const customId = itemStack.getDynamicProperty("deepcraft:item_id");
         
         const newItem = {
@@ -77,9 +73,9 @@ class MarketDataManager {
             createdAt: Date.now()
         };
 
-        listings.unshift(newItem); // 先頭に追加
+        listings.unshift(newItem);
         this.saveListings(listings);
-        return true;
+        return { success: true, message: `§a出品しました！ (§e${price} G§a)` };
     }
 
     static purchaseListing(buyer, listingId) {
@@ -90,18 +86,17 @@ class MarketDataManager {
         const item = listings[index];
         if (item.ownerId === buyer.id) return "own_item";
 
-        // 支払い処理
         const buyerGold = buyer.getDynamicProperty("deepcraft:gold") || 0;
         if (buyerGold < item.price) return "no_money";
 
         // 決済
         buyer.setDynamicProperty("deepcraft:gold", buyerGold - item.price);
         
-        // 売上金を出品者のポストへ (手数料を引く)
+        // 売上金をポストへ (手数料を引く)
         const profit = Math.floor(item.price * (1.0 - MARKET_CONFIG.TAX_RATE));
         this.sendToMailbox(item.ownerId, { amount: profit }, "gold");
 
-        // アイテムをバイヤーへ渡す
+        // アイテムをバイヤーへ
         const itemStack = this.reconstructItemStack(item);
         buyer.getComponent("inventory").container.addItem(itemStack);
 
@@ -112,7 +107,6 @@ class MarketDataManager {
     }
 
     static sendToMailbox(playerId, data, type) {
-        // 個人ごとのポストデータ (メールボックス)
         const key = `deepcraft:mailbox_${playerId}`;
         let mailbox = [];
         try {
@@ -121,15 +115,13 @@ class MarketDataManager {
         } catch (e) {}
 
         mailbox.push({ type: type, data: data, date: Date.now() });
-        // 容量オーバー対策: 古いものから削除（簡易）
-        if (JSON.stringify(mailbox).length > 30000) mailbox.shift();
+        if (JSON.stringify(mailbox).length > 30000) mailbox.shift(); // 容量対策
         
         world.setDynamicProperty(key, JSON.stringify(mailbox));
     }
 
     static reconstructItemStack(data) {
         let item;
-        // カスタム装備の復元
         if (data.customId && EQUIPMENT_POOL[data.customId]) {
             const def = EQUIPMENT_POOL[data.customId];
             item = new ItemStack(def.baseItem, data.amount);
@@ -137,39 +129,33 @@ class MarketDataManager {
         } else {
             item = new ItemStack(data.typeId, data.amount);
         }
-        
         if (data.nameTag) item.nameTag = data.nameTag;
         if (data.lore) item.setLore(data.lore);
         return item;
     }
 }
 
-// --- UIロジック ---
+// --- UI & コマンドロジック ---
 
 export function openMarketMenu(player) {
-    const form = new ChestFormData("double"); // 大容量チェスト
+    const form = new ChestFormData("double");
     form.title("§lグローバルマーケット");
 
-    // ヘッダー
     const gold = player.getDynamicProperty("deepcraft:gold") || 0;
     form.button(4, `§e所持金: ${gold} G`, ["§7欲しいアイテムをクリックで購入"], "minecraft:gold_nugget");
     
-    form.button(0, "§a§l出品する", ["§r§7インベントリから選択して出品"], "minecraft:emerald");
+    // 手持ち出品ボタン
+    form.button(0, "§a§l手持ちを出品", ["§r§7右手に持っているアイテムを", "§7出品します"], "minecraft:emerald");
     form.button(8, "§d§lポスト / 売上受取", ["§r§7売上金や返却アイテムを確認"], "minecraft:chest_minecart");
 
-    // 商品一覧 (最新45件を表示)
     const listings = MarketDataManager.getAllListings();
-    const displayLimit = 45;
-    
-    listings.slice(0, displayLimit).forEach((item, index) => {
-        // カスタム装備ならそのアイコン、なければバニラアイコン
+    // 2段目(9)から表示
+    listings.slice(0, 45).forEach((item, index) => {
         let icon = item.typeId;
         if (item.customId && EQUIPMENT_POOL[item.customId]) {
-            // ※Chest-UIでアイコン指定が必要なら定義から取得するが、簡易的にベースアイテムを使用
             icon = EQUIPMENT_POOL[item.customId].baseItem; 
         }
 
-        // スロットは 9 (2段目左) から開始
         const slot = 9 + index;
         const desc = [
             `§r§f${item.nameTag || "Unknown Item"} x${item.amount}`,
@@ -177,7 +163,6 @@ export function openMarketMenu(player) {
             `§7出品者: ${item.ownerName}`,
             item.ownerId === player.id ? "§c[あなたの出品]" : "§a[クリックで購入]"
         ];
-        // Loreを追加
         if (item.lore && item.lore.length > 0) desc.push("§8----------------", ...item.lore);
 
         form.button(slot, `§6${item.price} G`, desc, icon, item.amount);
@@ -186,86 +171,83 @@ export function openMarketMenu(player) {
     form.show(player).then(res => {
         if (res.canceled) return;
         
-        if (res.selection === 0) { openSellMenu(player); return; }
+        if (res.selection === 0) { openSellMenu_Hand(player); return; }
         if (res.selection === 8) { openMailbox(player); return; }
 
-        // 商品クリック時の購入処理
         const selectedIndex = res.selection - 9;
         if (selectedIndex >= 0 && selectedIndex < listings.length) {
-            const targetItem = listings[selectedIndex];
-            confirmPurchase(player, targetItem);
+            confirmPurchase(player, listings[selectedIndex]);
         }
     });
 }
 
-// クリック出品メニュー (インベントリ表示)
-function openSellMenu(player) {
-    const form = new ChestFormData("small");
-    form.title("§l出品: アイテムを選択");
-    
-    // 説明ボタン
-    form.button(13, "§7アイテムを選択してください", ["§r下のインベントリから", "§r売りたい物をクリック"], "minecraft:paper");
+// 手持ちアイテム出品フォーム
+function openSellMenu_Hand(player) {
+    const equip = player.getComponent("equippable");
+    const item = equip.getEquipment(EquipmentSlot.Mainhand);
 
-    form.show(player).then(res => {
-        if (res.canceled) return;
-        
-        // Chest-UIの仕様上、selection 27以降がインベントリスロットに対応
-        // small(27)の場合、inventoryの0番目は27になるはず
-        const invSlot = res.selection - 27;
-        
-        if (invSlot >= 0) {
-            const container = player.getComponent("inventory").container;
-            const item = container.getItem(invSlot);
-            
-            if (!item) {
-                player.sendMessage("§c空のスロットです。");
-                return;
-            }
-            
-            // 価格入力フォームへ
-            showPriceInput(player, item, invSlot);
-        }
-    });
-}
+    if (!item) {
+        player.sendMessage("§c右手にアイテムを持ってください。");
+        return;
+    }
 
-function showPriceInput(player, item, slot) {
     const form = new ModalFormData()
-        .title("出品価格の設定")
-        .textField(`§a${item.nameTag || item.typeId} (x${item.amount})\n§7価格を入力してください (手数料 5%)`, "例: 1000")
+        .title("出品設定")
+        .textField(`§a${item.nameTag || "アイテム"} (x${item.amount})\n§7価格を入力してください (手数料 5%)`, "例: 1000")
         .submitButton("出品確定");
 
     form.show(player).then(res => {
         if (res.canceled) return;
-        const priceStr = res.formValues[0];
-        const price = parseInt(priceStr);
+        const price = parseInt(res.formValues[0]);
 
         if (isNaN(price) || price <= 0) {
             player.sendMessage("§c無効な価格です。");
             return;
         }
 
-        // アイテム再確認と削除
-        const container = player.getComponent("inventory").container;
-        const currentItem = container.getItem(slot);
-        
-        // アイテムが変わっていないか簡易チェック
-        if (!currentItem || currentItem.typeId !== item.typeId) {
-            player.sendMessage("§cアイテムが存在しません。");
-            return;
-        }
+        // 再取得して確認
+        const currentItem = equip.getEquipment(EquipmentSlot.Mainhand);
+        if (!currentItem) return;
 
-        const success = MarketDataManager.addListing(player, currentItem, price);
-        if (success) {
-            container.setItem(slot, null); // インベントリから削除
+        const result = MarketDataManager.addListing(player, currentItem, price);
+        if (result.success) {
+            equip.setEquipment(EquipmentSlot.Mainhand, undefined); // アイテム消去
             player.playSound("random.orb");
-            player.sendMessage(`§a出品しました！ (§e${price} G§a)`);
+            player.sendMessage(result.message);
+        } else {
+            player.sendMessage(result.message);
         }
     });
 }
 
+// コマンドからの出品処理 (/scriptevent deepcraft:sell 1000)
+export function processCommandSell(player, message) {
+    const price = parseInt(message);
+    if (isNaN(price) || price <= 0) {
+        player.sendMessage("§c価格を指定してください。例: /scriptevent deepcraft:sell 1000");
+        return;
+    }
+
+    const equip = player.getComponent("equippable");
+    const item = equip.getEquipment(EquipmentSlot.Mainhand);
+
+    if (!item) {
+        player.sendMessage("§c右手にアイテムを持ってください。");
+        return;
+    }
+
+    const result = MarketDataManager.addListing(player, item, price);
+    if (result.success) {
+        equip.setEquipment(EquipmentSlot.Mainhand, undefined);
+        player.playSound("random.orb");
+        player.sendMessage(result.message);
+    } else {
+        player.sendMessage(result.message);
+    }
+}
+
 function confirmPurchase(player, item) {
     if (item.ownerId === player.id) {
-        // 自分のアイテムなら取り下げ処理にする？今回は簡易的に購入不可メッセージ
         player.sendMessage("§c自分の出品物は購入できません。");
         openMarketMenu(player);
         return;
@@ -273,8 +255,8 @@ function confirmPurchase(player, item) {
 
     const form = new ModalFormData()
         .title("購入確認")
-        .content(`§f商品: ${item.nameTag || item.typeId} x${item.amount}\n§e価格: ${item.price} G\n\n§7購入しますか？`)
-        .submitButton("§a購入する"); // キャンセルボタンはないが、閉じればキャンセル扱い
+        .content(`§f商品: ${item.nameTag || "アイテム"} x${item.amount}\n§e価格: ${item.price} G\n\n§7購入しますか？`)
+        .submitButton("§a購入する");
 
     form.show(player).then(res => {
         if (res.canceled) { openMarketMenu(player); return; }
@@ -285,10 +267,12 @@ function confirmPurchase(player, item) {
             player.sendMessage("§a購入しました！");
         } else if (result === "sold_out") {
             player.playSound("note.bass");
-            player.sendMessage("§c売り切れ、または存在しない商品です。");
+            player.sendMessage("§c売り切れです。");
         } else if (result === "no_money") {
             player.playSound("note.bass");
             player.sendMessage("§c所持金が足りません。");
+        } else if (result === "own_item") {
+            player.sendMessage("§c自分の出品物は購入できません。");
         }
         openMarketMenu(player);
     });
@@ -305,7 +289,6 @@ function openMailbox(player) {
         return;
     }
 
-    // 一括受取ロジック
     let totalGold = 0;
     let itemReceived = 0;
     const container = player.getComponent("inventory").container;
@@ -315,14 +298,12 @@ function openMailbox(player) {
         if (mail.type === "gold") {
             totalGold += mail.data.amount;
         } else if (mail.type === "expired") {
-            // アイテム返却
             const item = MarketDataManager.reconstructItemStack(mail.data);
-            // インベントリに空きがあれば追加、なければポストに残す
             if (container.emptySlotsCount > 0) {
                 container.addItem(item);
                 itemReceived++;
             } else {
-                newMailbox.push(mail); // 戻す
+                newMailbox.push(mail); // インベントリ満タンなら戻す
             }
         }
     });
@@ -341,4 +322,5 @@ function openMailbox(player) {
 
     world.setDynamicProperty(key, JSON.stringify(newMailbox));
     player.playSound("random.orb");
+    // 更新後のポスト状態を見るためメニュー再表示はしない（閉じる）
 }
