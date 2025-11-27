@@ -3,58 +3,63 @@
 /*
 ==========================================================================
  🧠 AI CONTEXT MEMORY (DeepCraft Development Log)
- Version: 10.0 (Ether System Implemented)
+ Version: 11.0 (Combat Overhaul & Stat Logic Finalization)
 ==========================================================================
 
 ## 1. Project Overview / プロジェクト概要
 - **Title**: DeepCraft
-- **Concept**: Deepwoken-inspired PvPvE RPG.
+- **Concept**: Deepwoken-inspired PvPvE RPG (Hardcore / Stat Building).
 - **Environment**: Minecraft BE Script API.
 - **Library**: Chest-UI.
 
 ## 2. ⚠️ Technical Constraints & Ban List (重要: 使用禁止・非推奨コード)
 1.  **[BANNED] `world.beforeEvents.entityHurt`**
-    * Solution: `world.afterEvents.entityHurt` + Health refund mechanics.
-2.  **[BANNED] `world.afterEvents.entityHitEntity`**
-    * Solution: Check `attacker` in `entityHurt`.
-3.  **[BANNED] `world.afterEvents.chatSend` (!cmd)**
-    * Solution: Use `/scriptevent deepcraft:command`.
-4.  **[BANNED] `entity.playSound()`**
-    * Solution: `dimension.playSound(id, location)`.
-5.  **[BANNED] Summoning `small_fireball`**
-    * Solution: `snowball` + particle effects.
+    * Reason: 不安定かつダメージ操作が反映されないため。
+    * Solution: `world.afterEvents.entityHurt` で処理する。
 
-## 3. File Structure
-- `main.js`: Core logic (Tick, Events, Ether, UI).
-- `config.js`: Settings (Stats, Ether Calc).
-- `data/skills.js`: Active skills with Mana Cost.
+2.  **[RESTRICTED] `applyDamage()` inside `entityHurt`**
+    * Reason: 無限ループ（再帰発火）のリスクがある。また、バニラのノックバックと重複する可能性がある。
+    * Solution: 基本的に `healthComponent.setCurrentValue()` でHPを直接減らす。トドメ（キルログが必要な場合）のみ `applyDamage` を使う。
+
+3.  **[BANNED] `world.afterEvents.chatSend` (!cmd)**
+    * Solution: `/scriptevent deepcraft:command` を使用。
+
+4.  **[BANNED] `entity.playSound()`**
+    * Solution: `dimension.playSound(id, location)` を使用。
+
+## 3. File Structure / ファイル構成
+- `main.js`: Core Logic (Combat, UI, Stats, Events).
+- `config.js`: Constants (Stats cap, Ether settings).
+- `data/*.js`: Content Definitions (Talents, Items, Mobs, Quests).
 
 ## 4. Current Mechanics / 実装済みの仕様
 
-### A. Combat System
-- **Ether (Mana) System**: 
-  - **Max Ether**: `Base(20) + (Intelligence * 2.5)`. 
-  - **Regen**: `Base(1.0) + (Willpower * 0.2)` per second.
-  - **Display**: Action Bar (Blue Gauge).
-  - **Cost**: Skills require Ether. Insufficient Ether fails the skill.
-- **Defense**: `Defense / (Defense + 50)` rate.
-- **Namakura**: Low stat weapon penalty.
-- **Skill Trigger**: Right-Click (Item Use).
+### A. Combat System (Logic: Direct HP Manipulation)
+- **Damage Process**:
+  1.  **I-Frame Check**: 独自の0.5秒（10tick）クールダウンで連打/多段ヒットを防止。
+  2.  **Refund**: バニラのダメージを即時回復して帳消しにする（ノックバックは残る）。
+  3.  **Calculation**: `(Base + Weapon + Buffs) * Crit` で攻撃力を算出。
+  4.  **Apply**: `Max(1, Attack - Defense)` を計算し、**HP数値を直接書き換えて**減らす。
+- **Critical**:
+  - Chance: `5% + (Agi * 0.1) + (Int * 0.05)`.
+  - Damage: `1.5x + (Str * 0.005)`.
+  - Effect: Sound (`random.anvil_land`) & Particle (`critical_hit_emitter`).
+- **Evasion**: `(Agi * 0.1)%` + Talent to negate damage.
 
 ### B. Stats & Progression
-- **Stats**: 14 Types.
-- **Intelligence**: Increases Max Ether.
-- **Willpower**: Increases Ether Regen (and Aquatic Life passive).
-- **Health**: 18 + (Fortitude * 2).
-- **Leveling**: 15 Stat points = 1 Level.
+- **Level Cap**: Lv 20.
+- **Stat Points**: 15 points per level. Total **300** points (Lv20 + Bonus).
+- **Stat Cap**: Max **100** per stat.
+- **Initial Stats**: All **0**.
+- **Ether (Mana)**:
+  - Max: `20 + (Intelligence * 2.5)`.
+  - Regen: `1.0 + (Willpower * 0.2)` / sec.
+- **Menu**: Detailed stat view implemented (`calculateEntityStats` shared logic).
 
-### C. Death Penalty
-- **XP**: 100% Lost.
-- **Items**: 50% chance to drop into "Soul" (Chest Minecart spawned at Y+1).
-
-### D. Content
-- **Bosses**: 3 Custom Bosses with AI (Skill chance on Tick & Hurt) and HP Bar (NameTag).
-- **Equipment**: 20+ Custom Items with Requirements & Skills.
+### C. Content
+- **Talents**: Categorized (Warrior, Mage, Rogue, Survivor). Completion unlocks Legendary.
+- **Equipment**: Custom `atk` / `def` parameters added to `equipment.js`.
+- **Bosses**: 3 Custom Bosses with AI.
 
 ==========================================================================
 */
