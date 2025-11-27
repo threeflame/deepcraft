@@ -1,6 +1,7 @@
 // BP/scripts/main.js
 import { world, system, ItemStack, EquipmentSlot } from "@minecraft/server";
 import { ChestFormData } from "./extensions/forms.js";
+import { openMarketMenu } from "./data/market.js";
 
 // Data Imports
 import { CONFIG } from "./config.js";
@@ -22,10 +23,11 @@ world.afterEvents.playerSpawn.subscribe((ev) => {
 function initializePlayer(player) {
     player.setDynamicProperty("deepcraft:active_profile", 1);
     player.setDynamicProperty("deepcraft:ether", CONFIG.ETHER_BASE);
+    // ★追加: 所持金初期化
+    player.setDynamicProperty("deepcraft:gold", 0);
     loadProfile(player, 1);
     player.sendMessage("§aDeepCraftシステムを初期化しました。");
 }
-
 // --- System Loop (Main Cycle) ---
 
 system.runInterval(() => {
@@ -677,27 +679,50 @@ function openMenuHub(player) {
     form.title("§lメニューハブ");
     const pendingDraws = player.getDynamicProperty("deepcraft:pending_card_draws") || 0;
     const activeProfile = player.getDynamicProperty("deepcraft:active_profile") || 1;
+    // ★追加: 所持金取得
+    const gold = player.getDynamicProperty("deepcraft:gold") || 0;
 
+    // ボタン配置
     form.button(2, "§b§lタレント確認", ["§r§7所有タレントを見る"], "minecraft:enchanted_book");
+    
     if (pendingDraws > 0) {
         form.button(4, "§6§l🎁 タレントを引く", ["§r§e未受取のタレントがあります！", "§cクリックで抽選", "§8(ステータス画面はロック中)"], "minecraft:nether_star", pendingDraws, 0, true);
     } else {
         form.button(4, "§a§lステータス強化", ["§r§7能力値を管理する"], "minecraft:experience_bottle");
     }
+    
     form.button(6, `§d§lプロファイル: スロット ${activeProfile}`, ["§r§7ビルド切り替え"], "minecraft:name_tag");
     form.button(13, "§d§l📊 詳細ステータス", ["§r§7攻撃力・防御力などを確認"], "minecraft:spyglass");
     
+    // ★追加: マーケットボタン
+    form.button(15, `§6§lマーケット (${gold} G)`, ["§r§eプレイヤー間取引所", "§7出品・購入・受取"], "minecraft:gold_ingot");
+
     form.button(20, "§6§lクエストログ", ["§r§7進行中のクエスト"], "minecraft:writable_book");
     form.button(26, "§c§lデバッグ: リセット", ["§r§cプロファイルをリセット"], "minecraft:barrier");
+    
+    // ★デバッグ: お金追加機能も入れておくと便利
+    form.button(24, "§e§lデバッグ: +1000 G", ["§r資金を追加"], "minecraft:sunflower");
     form.button(25, "§e§lデバッグ: +XP", ["§r+1000 XP"], "minecraft:emerald");
+
     form.show(player).then(res => {
         if (res.canceled) return;
         if (res.selection === 4) pendingDraws > 0 ? openCardSelection(player) : openStatusMenu(player);
         if (res.selection === 2) openTalentViewer(player);
         if (res.selection === 6) openProfileMenu(player);
         if (res.selection === 13) openDetailStats(player);
+        // ★マーケットを開く
+        if (res.selection === 15) openMarketMenu(player);
+        
         if (res.selection === 20) openQuestMenu(player);
         if (res.selection === 26) resetCurrentProfile(player);
+        
+        // デバッグ用
+        if (res.selection === 24) {
+            const current = player.getDynamicProperty("deepcraft:gold") || 0;
+            player.setDynamicProperty("deepcraft:gold", current + 1000);
+            player.playSound("random.orb");
+            openMenuHub(player);
+        }
         if (res.selection === 25) { addXP(player, 1000); openMenuHub(player); }
     });
 }
