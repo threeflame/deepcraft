@@ -21,7 +21,6 @@ world.afterEvents.playerSpawn.subscribe((ev) => {
 
 function initializePlayer(player) {
     player.setDynamicProperty("deepcraft:active_profile", 1);
-    // ★追加: エーテル初期化
     player.setDynamicProperty("deepcraft:ether", CONFIG.ETHER_BASE);
     loadProfile(player, 1);
     player.sendMessage("§aDeepCraft System Initialized.");
@@ -32,20 +31,17 @@ function initializePlayer(player) {
 system.runInterval(() => {
     // 1. Player Loop
     world.getAllPlayers().forEach(player => {
-        const profile = player.getDynamicProperty("deepcraft:active_profile") || 1;
         const level = player.getDynamicProperty("deepcraft:level") || 1;
         const xp = player.getDynamicProperty("deepcraft:xp") || 0;
         const reqXp = getXpCostForLevel(level);
         
-        // ★追加: ステータス取得
-        const intelligence = player.getDynamicProperty("deepcraft:intelligence") || 1;
-        const willpower = player.getDynamicProperty("deepcraft:willpower") || 1;
+        const intelligence = player.getDynamicProperty("deepcraft:intelligence") || 0; // ★0に変更
+        const willpower = player.getDynamicProperty("deepcraft:willpower") || 0;       // ★0に変更
 
-        // ★追加: エーテル計算 & 回復処理
+        // ★ Ether Logic
         const maxEther = Math.floor(CONFIG.ETHER_BASE + (intelligence * CONFIG.ETHER_PER_INT));
         let currentEther = player.getDynamicProperty("deepcraft:ether") || 0;
 
-        // 自然回復 (5tick = 0.25秒ごとに実行されるため、秒間回復量を4で割って加算)
         const regenRate = CONFIG.ETHER_REGEN_BASE + (willpower * CONFIG.ETHER_REGEN_PER_WILL);
         const tickRegen = regenRate / 4; 
         
@@ -54,15 +50,12 @@ system.runInterval(() => {
             player.setDynamicProperty("deepcraft:ether", currentEther);
         }
 
-        // ★変更: HUDにエーテル表示を追加
-        // ゲージ作成 (20目盛り)
+        // ★ HUD Display
         const etherPercent = Math.max(0, Math.min(1, currentEther / maxEther));
         const etherBarLen = 10; 
         const etherFill = Math.ceil(etherPercent * etherBarLen);
-        // etherBarの視覚化: ■■■□□ (青色)
-        const etherBarDisplay = "§b" + "■".repeat(etherFill) + "§7" + "■".repeat(etherBarLen - etherFill);
+        const etherBarDisplay = "§b" + "■".repeat(etherFill) + "§8" + "■".repeat(etherBarLen - etherFill);
 
-        // アクションバー更新
         player.onScreenDisplay.setActionBar(
             `§eLv.${level} §f[XP: §a${xp}§f/§c${reqXp}§f]\n` +
             `§3Ether: ${etherBarDisplay} §b${Math.floor(currentEther)}§3/§b${maxEther}`
@@ -74,18 +67,18 @@ system.runInterval(() => {
         applyStatsToEntity(player);
     });
 
-    // 2. Boss Loop (AI & Regen) - そのまま
+    // 2. Boss Loop
     world.getDimension("overworld").getEntities({ tags: ["deepcraft:boss"] }).forEach(boss => {
         updateBossNameTag(boss);
         processBossSkillAI(boss);
     });
 
-}, 5); // 0.25秒ごとに実行
+}, 5);
 
 function getXpCostForLevel(level) {
+    // Lv20以降もコストは増え続ける（あるいは固定するかはお好みで。ここでは計算式通り増やす）
     return CONFIG.XP_BASE_COST + (level * CONFIG.XP_LEVEL_MULTIPLIER);
 }
-
 // --- Boss Logic (変更なし) ---
 // ... (updateBossNameTag, processBossSkillAI, executeBossSkill は既存のまま) ...
 function updateBossNameTag(boss) {
@@ -322,14 +315,16 @@ function checkReq(player, item) {
 
 function applyStatsToEntity(player) {
     const stats = {};
-    for (const key in CONFIG.STATS) stats[key] = player.getDynamicProperty(`deepcraft:${key}`) || 1;
+    // ★初期値を0に変更
+    for (const key in CONFIG.STATS) stats[key] = player.getDynamicProperty(`deepcraft:${key}`) || 0;
 
+    // HP計算: 18 + (Fortitude * 2) -> Fort0なら18
     let baseHealth = 18 + (stats.fortitude * 2);
     if (player.hasTag("talent:vitality_1")) baseHealth += 4;
     if (player.hasTag("talent:vitality_2")) baseHealth += 10;
     if (player.hasTag("talent:glass_cannon")) baseHealth = Math.floor(baseHealth * 0.5);
 
-    const healthVal = Math.min(Math.max(baseHealth, 20), 300); 
+    const healthVal = Math.min(Math.max(baseHealth, 18), 300); // 最小値を18に調整
     player.triggerEvent(`health${healthVal}`);
 
     try { player.setProperty("status:arrow_damage", stats.light); } catch (e) {}
@@ -337,6 +332,7 @@ function applyStatsToEntity(player) {
     if (player.hasTag("talent:heavy_stance")) player.triggerEvent("knockback_resistance100");
     else player.triggerEvent("knockback_resistance_reset");
 
+    // Speed: 10 + (Agi * 0.2) -> Agi0なら10(標準)
     let speedIndex = 10 + Math.floor(stats.agility * 0.2); 
     if (player.hasTag("talent:swift_1")) speedIndex += 5; 
     if (player.hasTag("talent:godspeed")) speedIndex += 15;
@@ -347,7 +343,7 @@ function applyStatsToEntity(player) {
     player.triggerEvent("attack1");
 }
 
-// --- Profile & Menu Logic (Standard) ---
+// --- Profile & Menu Logic ---
 
 function saveProfile(player, slot) {
     const questDataStr = player.getDynamicProperty("deepcraft:quest_data") || "{}";
@@ -356,10 +352,11 @@ function saveProfile(player, slot) {
         xp: player.getDynamicProperty("deepcraft:xp") || 0,
         invested_points: player.getDynamicProperty("deepcraft:invested_points") || 0,
         pending_card_draws: player.getDynamicProperty("deepcraft:pending_card_draws") || 0,
-        ether: player.getDynamicProperty("deepcraft:ether") || CONFIG.ETHER_BASE, // ★追加
+        ether: player.getDynamicProperty("deepcraft:ether") || CONFIG.ETHER_BASE,
         stats: {}, talents: [], quests: JSON.parse(questDataStr)
     };
-    for (const key in CONFIG.STATS) data.stats[key] = player.getDynamicProperty(`deepcraft:${key}`) || 1;
+    // ★初期値を0に変更
+    for (const key in CONFIG.STATS) data.stats[key] = player.getDynamicProperty(`deepcraft:${key}`) || 0;
     player.getTags().forEach(tag => { if (tag.startsWith("talent:")) data.talents.push(tag); });
     player.setDynamicProperty(`deepcraft:profile_${slot}`, JSON.stringify(data));
 }
@@ -370,18 +367,19 @@ function loadProfile(player, slot) {
     if (json) {
         data = JSON.parse(json);
     } else {
+        // ★デフォルト値を0に変更
         data = { level: 1, xp: 0, invested_points: 0, pending_card_draws: 0, ether: CONFIG.ETHER_BASE, stats: {}, talents: [], quests: {} };
-        for (const key in CONFIG.STATS) data.stats[key] = 1;
+        for (const key in CONFIG.STATS) data.stats[key] = 0;
     }
     player.setDynamicProperty("deepcraft:level", data.level);
     player.setDynamicProperty("deepcraft:xp", data.xp);
     player.setDynamicProperty("deepcraft:invested_points", data.invested_points);
     player.setDynamicProperty("deepcraft:pending_card_draws", data.pending_card_draws);
     player.setDynamicProperty("deepcraft:quest_data", JSON.stringify(data.quests || {}));
-    // ★追加: エーテル読み込み
     player.setDynamicProperty("deepcraft:ether", data.ether || CONFIG.ETHER_BASE);
 
-    for (const key in CONFIG.STATS) player.setDynamicProperty(`deepcraft:${key}`, data.stats[key] || 1);
+    // ★初期値を0に変更
+    for (const key in CONFIG.STATS) player.setDynamicProperty(`deepcraft:${key}`, data.stats[key] || 0);
     player.getTags().forEach(tag => { if (tag.startsWith("talent:")) player.removeTag(tag); });
     data.talents.forEach(tag => player.addTag(tag));
     player.setDynamicProperty("deepcraft:active_profile", slot);
@@ -455,7 +453,17 @@ function openStatusMenu(player) {
     const remaining = CONFIG.STAT_POINTS_PER_LEVEL - invested;
     const currentXP = player.getDynamicProperty("deepcraft:xp");
     const cost = getXpCostForLevel(level);
-    form.title(`§lStatus | Pts: ${remaining} | XP: ${currentXP}`);
+    
+    // ★タイトル表示調整: Lv20で残りがある場合は「Max Level Bonus」のように見せる
+    let titleText = `§lStatus | Pts to LvUp: ${remaining}`;
+    if (level >= 20) {
+        titleText = `§lStatus | Bonus Pts: ${remaining} (Max Lv)`;
+        if (remaining <= 0) titleText = `§lStatus | §a§lFULLY MAXED`;
+    }
+    
+    form.title(`${titleText} | XP: ${currentXP}`);
+    
+    // ... (Layout definition unchanged) ...
     const layout = [
         { key: "strength", slot: 1 }, { key: "fortitude", slot: 3 }, { key: "agility", slot: 5 }, { key: "defense", slot: 7 },
         { key: "intelligence", slot: 11 }, { key: "willpower", slot: 13 }, { key: "charisma", slot: 15 },
@@ -463,11 +471,14 @@ function openStatusMenu(player) {
         { key: "heavy", slot: 47 }, { key: "medium", slot: 49 }, { key: "light", slot: 51 }
     ];
     const slotToKeyMap = {};
+
     layout.forEach(item => {
         const key = item.key;
         const slot = item.slot;
-        const val = player.getDynamicProperty(`deepcraft:${key}`) || 1;
+        // ★初期値0
+        const val = player.getDynamicProperty(`deepcraft:${key}`) || 0;
         const name = CONFIG.STATS[key];
+        
         let icon = "minecraft:book";
         if (key === "strength") icon = "minecraft:netherite_sword";
         if (key === "fortitude") icon = "minecraft:golden_apple";
@@ -484,11 +495,13 @@ function openStatusMenu(player) {
         if (key === "medium") icon = "minecraft:iron_chestplate";
         if (key === "light") icon = "minecraft:bow";
         
-        // ★追加: 説明文にエーテルへの影響を追記
         let lore = [`§r§7Lv: §f${val}`, `§r§eCost: ${cost} XP`, `§r§8(Click to Upgrade)`];
         if (key === "intelligence") lore.push(`§bMax Ether: +${Math.floor(val * CONFIG.ETHER_PER_INT)}`);
         if (key === "willpower") lore.push(`§bEther Regen++`);
 
+        // ★カンスト表示 (100) または 全体カンスト時はボタンを押せないようにする等の装飾
+        if (val >= 100) lore = [`§r§a§lMAXED (100)`];
+        
         form.button(slot, `§l${name}`, lore, icon, val);
         slotToKeyMap[slot] = key;
     });
@@ -558,20 +571,60 @@ function openQuestMenu(player) {
 }
 
 function upgradeStat(player, statKey) {
-    const invested = player.getDynamicProperty("deepcraft:invested_points");
-    if (invested >= CONFIG.STAT_POINTS_PER_LEVEL) { processLevelUp(player); return; }
+    const invested = player.getDynamicProperty("deepcraft:invested_points") || 0;
+    const level = player.getDynamicProperty("deepcraft:level") || 1;
+    
+    // ★修正: Lv20かつ投資ポイントが15に達したら、それ以上振れない (合計300)
+    if (level >= 20 && invested >= CONFIG.STAT_POINTS_PER_LEVEL) {
+        player.playSound("note.bass");
+        player.sendMessage("§a§lYou have reached the absolute limit of power!");
+        openStatusMenu(player);
+        return;
+    }
+
     const currentXP = player.getDynamicProperty("deepcraft:xp");
-    const level = player.getDynamicProperty("deepcraft:level");
     const cost = getXpCostForLevel(level);
-    if (currentXP < cost) { player.sendMessage(`§cNot enough XP! Need: ${cost}, Have: ${currentXP}`); openStatusMenu(player); return; }
+    
+    // ★ステータス上限100チェック
+    const currentVal = player.getDynamicProperty(`deepcraft:${statKey}`) || 0;
+    if (currentVal >= 100) {
+        player.playSound("note.bass");
+        player.sendMessage(`§c${CONFIG.STATS[statKey]} is already at max level (100)!`);
+        openStatusMenu(player);
+        return;
+    }
+
+    if (currentXP < cost) { 
+        player.sendMessage(`§cNot enough XP! Need: ${cost}, Have: ${currentXP}`); 
+        openStatusMenu(player); 
+        return; 
+    }
+
+    // 実行
     player.setDynamicProperty("deepcraft:xp", currentXP - cost);
-    const currentVal = player.getDynamicProperty(`deepcraft:${statKey}`) || 1;
     player.setDynamicProperty(`deepcraft:${statKey}`, currentVal + 1);
     player.setDynamicProperty("deepcraft:invested_points", invested + 1);
+    
     player.playSound("random.levelup");
     player.sendMessage(`§aUpgraded: ${CONFIG.STATS[statKey]} -> ${currentVal + 1}`);
     applyStatsToEntity(player);
-    if (invested + 1 >= CONFIG.STAT_POINTS_PER_LEVEL) { processLevelUp(player); } else { openStatusMenu(player); }
+
+    // ★レベルアップ判定
+    // 15ポイント投資完了時
+    if (invested + 1 >= CONFIG.STAT_POINTS_PER_LEVEL) {
+        if (level < 20) {
+            // Lv20未満ならレベルアップ
+            processLevelUp(player);
+        } else {
+            // Lv20ならレベルは上がらないが、ボーナス完了として通知
+            player.sendMessage("§6§lMAX LEVEL BONUS COMPLETE! §r(Stats: 300/300)");
+            player.playSound("ui.toast.challenge_complete");
+            // invested_pointsはリセットせず15のままにして、これ以上振れないようにロックする
+            system.runTimeout(() => openMenuHub(player), 20);
+        }
+    } else {
+        openStatusMenu(player);
+    }
 }
 
 function processLevelUp(player) {
@@ -637,7 +690,6 @@ function resetCurrentProfile(player) {
     const currentSlot = player.getDynamicProperty("deepcraft:active_profile") || 1;
     player.setDynamicProperty(`deepcraft:profile_${currentSlot}`, undefined);
     player.setDynamicProperty("deepcraft:quest_data", undefined);
-    // ★追加: エーテルリセット
     player.setDynamicProperty("deepcraft:ether", CONFIG.ETHER_BASE);
     loadProfile(player, currentSlot);
     player.playSound("random.break");
