@@ -954,6 +954,7 @@ function upgradeStat(player, statKey) {
     const invested = player.getDynamicProperty("deepcraft:invested_points") || 0;
     const level = player.getDynamicProperty("deepcraft:level") || 1;
     
+    // 1. 限界チェック
     if (level >= 20 && invested >= CONFIG.STAT_POINTS_PER_LEVEL) {
         player.playSound("note.bass");
         player.sendMessage("§a§lこれ以上の強化は不可能です！(限界到達)");
@@ -973,41 +974,56 @@ function upgradeStat(player, statKey) {
     }
 
     if (currentXP < cost) { 
-        player.sendMessage(`§cXPが足りません！ 必要: ${cost}, 所持: ${currentXP}`); 
+        player.sendMessage("§cXPが足りません！"); 
         openStatusMenu(player); 
         return; 
     }
 
+    // 2. 値の計算
+    const nextInvested = invested + 1;
+
+    // 3. ★重要: 先にデータを全て保存する (エラーで止まる前に確定させる)
     player.setDynamicProperty("deepcraft:xp", currentXP - cost);
     player.setDynamicProperty(`deepcraft:${statKey}`, currentVal + 1);
-    player.setDynamicProperty("deepcraft:invested_points", invested + 1);
-    
+
+    // レベルアップするかどうかで保存内容を変える
+    if (nextInvested >= CONFIG.STAT_POINTS_PER_LEVEL) {
+        // レベルアップルート: ポイント0、レベル+1
+        player.setDynamicProperty("deepcraft:invested_points", 0);
+        if (level < 20) {
+            player.setDynamicProperty("deepcraft:level", level + 1);
+            const pending = player.getDynamicProperty("deepcraft:pending_card_draws") || 0;
+            player.setDynamicProperty("deepcraft:pending_card_draws", pending + 1);
+        }
+    } else {
+        // 通常ルート: ポイント加算
+        player.setDynamicProperty("deepcraft:invested_points", nextInvested);
+    }
+
     player.playSound("random.levelup");
     player.sendMessage(`§a強化完了: ${CONFIG.STATS[statKey]} -> ${currentVal + 1}`);
-    applyStatsToEntity(player);
 
-    if (invested + 1 >= CONFIG.STAT_POINTS_PER_LEVEL) {
+    // 4. ステータス反映 (ここがplayer.json不整合でエラーになりやすいので try-catch で守る)
+    try {
+        applyStatsToEntity(player);
+    } catch (e) {
+        console.warn("Stats Apply Error: " + e); // エラーログだけ出して処理は続ける
+    }
+
+    // 5. メニュー遷移
+    if (nextInvested >= CONFIG.STAT_POINTS_PER_LEVEL) {
         if (level < 20) {
-            processLevelUp(player);
+            player.sendMessage(`§6§lレベルアップ！ §r(Lv.${level + 1})`);
+            player.playSound("ui.toast.challenge_complete");
+            system.runTimeout(() => openMenuHub(player), 20);
         } else {
-            player.sendMessage("§6§l最大レベルボーナス完了！ §r(ステータス: 300/300)");
+            player.sendMessage("§6§l最大レベルボーナス完了！");
             player.playSound("ui.toast.challenge_complete");
             system.runTimeout(() => openMenuHub(player), 20);
         }
     } else {
         openStatusMenu(player);
     }
-}
-
-function processLevelUp(player) {
-    const currentLvl = player.getDynamicProperty("deepcraft:level");
-    player.setDynamicProperty("deepcraft:level", currentLvl + 1);
-    player.setDynamicProperty("deepcraft:invested_points", 0);
-    let pending = player.getDynamicProperty("deepcraft:pending_card_draws") || 0;
-    player.setDynamicProperty("deepcraft:pending_card_draws", pending + 1);
-    player.sendMessage(`§6§lレベルアップ！ §r(Lv.${currentLvl + 1})`);
-    player.playSound("ui.toast.challenge_complete");
-    system.runTimeout(() => openMenuHub(player), 20);
 }
 
 function openCardSelection(player) {
