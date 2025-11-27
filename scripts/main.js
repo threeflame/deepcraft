@@ -1217,68 +1217,58 @@ function resetCurrentProfile(player) {
 
 // --- Combat Logging Prevention (Instant Drop) ---
 
-// --- Combat Logging Prevention (Instant Drop) ---
+// --- Combat Logging Prevention (Fix: Read-Only Safe) ---
 
 world.beforeEvents.playerLeave.subscribe((ev) => {
     const player = ev.player;
     const combatTimer = player.getDynamicProperty("deepcraft:combat_timer") || 0;
 
-    // 戦闘中(タイマー>0)にログアウトしようとした場合
+    // 戦闘中なら処理開始
     if (combatTimer > 0) {
-        // ★重要: system.runの中ではplayerデータが消えているため、ここで先に確保しておく
-        const playerName = player.name;
+        // 1. 必要なデータを一時変数に退避 (この時点ではまだPlayerにアクセス可能)
         const playerId = player.id;
-        const dimensionId = player.dimension.id;
-        const location = { x: player.location.x, y: player.location.y, z: player.location.z };
+        const playerName = player.name;
+        const dimId = player.dimension.id;
+        const loc = { x: player.location.x, y: player.location.y, z: player.location.z };
 
-        // 1. 次回ログイン時の処刑フラグを立てる
-        player.setDynamicProperty("deepcraft:combat_logged", true);
-
-        // 2. アイテムをSoulに移す (即時ドロップ)
-        const inventory = player.getComponent("inventory").container;
+        // インベントリの中身をバックアップ (削除はしない！読み取るだけ)
+        const container = player.getComponent("inventory").container;
         const equip = player.getComponent("equippable");
-        let droppedItems = [];
+        const backupItems = [];
 
-        // インベントリの中身を回収
-        for (let i = 0; i < inventory.size; i++) {
-            const item = inventory.getItem(i);
-            if (item) {
-                droppedItems.push(item.clone());
-                inventory.setItem(i, undefined); // その場で消す
-            }
+        for (let i = 0; i < container.size; i++) {
+            const item = container.getItem(i);
+            if (item) backupItems.push(item.clone());
         }
-        
-        // 装備品も回収
+
         [EquipmentSlot.Head, EquipmentSlot.Chest, EquipmentSlot.Legs, EquipmentSlot.Feet, EquipmentSlot.Mainhand, EquipmentSlot.Offhand].forEach(slot => {
             const item = equip.getEquipment(slot);
-            if (item) {
-                droppedItems.push(item.clone());
-                equip.setEquipment(slot, undefined); // その場で消す
-            }
+            if (item) backupItems.push(item.clone());
         });
 
-        // 3. Soul生成 (システム権限で強制スポーン)
-        if (droppedItems.length > 0) {
-            system.run(() => {
-                try {
-                    // ★修正: 確保しておいたIDからディメンションを取得
-                    const targetDim = world.getDimension(dimensionId);
-                    const spawnLoc = { x: location.x, y: location.y + 1.0, z: location.z };
-                    
-                    const soul = targetDim.spawnEntity("minecraft:chest_minecart", spawnLoc);
-                    // ★修正: 確保しておいた名前を使用
-                    soul.nameTag = `§c${playerName}の逃亡跡 (Soul)`;
-                    soul.setDynamicProperty("deepcraft:owner_id", playerId);
+        // 2. 書き込み処理は system.run で1ティック遅らせて実行
+        // (イベントの外に出ることで制限が解除される & プレイヤーが消えた後でもワールドデータは操作可能)
+        system.run(() => {
+            try {
+                // 処刑用フラグを「ワールド」に保存 (プレイヤーはもういないため)
+                world.setDynamicProperty(`combat_log:${playerId}`, true);
 
-                    const soulContainer = soul.getComponent("inventory").container;
-                    droppedItems.forEach(item => soulContainer.addItem(item));
+                // Soul生成 (アイテムがあった場合のみ)
+                if (backupItems.length > 0) {
+                    const dim = world.getDimension(dimId);
+                    const spawnLoc = { x: loc.x, y: loc.y + 1.0, z: loc.z };
                     
-                    // ログ出力
-                    world.sendMessage(`§c§l${playerName} が戦闘から逃亡しました！ アイテムがその場にドロップしました。`);
-                } catch(e) {
-                    console.warn("Combat Log Drop Error: " + e);
+                    const soul = dim.spawnEntity("minecraft:chest_minecart", spawnLoc);
+                    soul.nameTag = `§c${playerName}の逃亡跡 (Soul)`;
+                    
+                    const soulContainer = soul.getComponent("inventory").container;
+                    backupItems.forEach(item => soulContainer.addItem(item));
                 }
-            });
-        }
+
+                world.sendMessage(`§c§l${playerName} が戦闘から逃亡しました！ アイテムがその場にドロップしました。`);
+            } catch (e) {
+                console.warn("Combat Log Logic Error: " + e);
+            }
+        });
     }
 });
