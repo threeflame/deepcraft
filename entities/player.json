@@ -6,7 +6,7 @@
       "is_spawnable": false,
       "is_summonable": false,
       "is_experimental": false,
-      "properties":{
+      "properties": {
         "status:arrow_damage": { 
           "type": "int", 
           "range": [-1, 300], 
@@ -49,9 +49,9 @@
           "seats": { "position": [ 0.0, -0.2, -0.35 ] }
         }
       },
+      
       "attack_reset": { "minecraft:attack":{"damage":1} },
-      
-      
+    
       "health_reset": { "minecraft:health": { "value": 99999, "max": 99999 } },
       
       "movement_reset": { "minecraft:movement":{"value":0.1} },
@@ -149,7 +149,6 @@
       "movement_reset": {"add": {"component_groups": ["movement_reset"]}},
       "knockback_resistance_reset": {"add": {"component_groups": ["knockback_resistance_reset"]}},
       "scale_reset": {"add": {"component_groups": ["scale_reset"]}},
-      
       
       "attack0":{"add": {"component_groups": [ "attack0" ]}},
       "attack1":{"add": {"component_groups": [ "attack1" ]}},
