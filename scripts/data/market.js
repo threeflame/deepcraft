@@ -1,6 +1,6 @@
 // BP/scripts/data/market.js
 import { world, system, ItemStack, EquipmentSlot } from "@minecraft/server";
-import { ModalFormData } from "@minecraft/server-ui";
+import { ModalFormData, MessageFormData } from "@minecraft/server-ui"; // ★MessageFormDataを追加
 import { ChestFormData } from "../extensions/forms.js";
 import { EQUIPMENT_POOL } from "./equipment.js";
 
@@ -25,7 +25,6 @@ export class MarketDataManager {
                 } catch (e) { console.warn(`Market Load Error [${i}]: ${e}`); }
             }
         }
-        // 期限切れチェックとソート（新しい順）
         const now = Date.now();
         return allListings.filter(item => {
             if (now - item.createdAt > MARKET_CONFIG.EXPIRE_HOURS * 3600000) {
@@ -37,11 +36,9 @@ export class MarketDataManager {
     }
 
     static saveListings(listings) {
-        // 全データを一旦クリア
         for (let i = 0; i < MARKET_CONFIG.MAX_CHUNKS; i++) {
             world.setDynamicProperty(`deepcraft:market_${i}`, undefined);
         }
-        // 分割保存
         for (let i = 0; i < listings.length; i += MARKET_CONFIG.ITEMS_PER_DATA_CHUNK) {
             const chunkIndex = Math.floor(i / MARKET_CONFIG.ITEMS_PER_DATA_CHUNK);
             if (chunkIndex >= MARKET_CONFIG.MAX_CHUNKS) break;
@@ -89,18 +86,14 @@ export class MarketDataManager {
         const buyerGold = buyer.getDynamicProperty("deepcraft:gold") || 0;
         if (buyerGold < item.price) return "no_money";
 
-        // 決済
         buyer.setDynamicProperty("deepcraft:gold", buyerGold - item.price);
         
-        // 売上金をポストへ (手数料を引く)
         const profit = Math.floor(item.price * (1.0 - MARKET_CONFIG.TAX_RATE));
         this.sendToMailbox(item.ownerId, { amount: profit }, "gold");
 
-        // アイテムをバイヤーへ
         const itemStack = this.reconstructItemStack(item);
         buyer.getComponent("inventory").container.addItem(itemStack);
 
-        // リストから削除
         listings.splice(index, 1);
         this.saveListings(listings);
         return "success";
@@ -115,7 +108,7 @@ export class MarketDataManager {
         } catch (e) {}
 
         mailbox.push({ type: type, data: data, date: Date.now() });
-        if (JSON.stringify(mailbox).length > 30000) mailbox.shift(); // 容量対策
+        if (JSON.stringify(mailbox).length > 30000) mailbox.shift();
         
         world.setDynamicProperty(key, JSON.stringify(mailbox));
     }
@@ -144,12 +137,10 @@ export function openMarketMenu(player) {
     const gold = player.getDynamicProperty("deepcraft:gold") || 0;
     form.button(4, `§e所持金: ${gold} G`, ["§7欲しいアイテムをクリックで購入"], "minecraft:gold_nugget");
     
-    // 手持ち出品ボタン
     form.button(0, "§a§l手持ちを出品", ["§r§7右手に持っているアイテムを", "§7出品します"], "minecraft:emerald");
     form.button(8, "§d§lポスト / 売上受取", ["§r§7売上金や返却アイテムを確認"], "minecraft:chest_minecart");
 
     const listings = MarketDataManager.getAllListings();
-    // 2段目(9)から表示
     listings.slice(0, 45).forEach((item, index) => {
         let icon = item.typeId;
         if (item.customId && EQUIPMENT_POOL[item.customId]) {
@@ -181,7 +172,7 @@ export function openMarketMenu(player) {
     });
 }
 
-// 手持ちアイテム出品フォーム
+// 手持ちアイテム出品フォーム (ModalFormData)
 function openSellMenu_Hand(player) {
     const equip = player.getComponent("equippable");
     const item = equip.getEquipment(EquipmentSlot.Mainhand);
@@ -191,10 +182,10 @@ function openSellMenu_Hand(player) {
         return;
     }
 
+    // ★修正: submitButtonを削除
     const form = new ModalFormData()
         .title("出品設定")
-        .textField(`§a${item.nameTag || "アイテム"} (x${item.amount})\n§7価格を入力してください (手数料 5%)`, "例: 1000")
-        .submitButton("出品確定");
+        .textField(`§a${item.nameTag || "アイテム"} (x${item.amount})\n§7価格を入力してください (手数料 5%)`, "例: 1000");
 
     form.show(player).then(res => {
         if (res.canceled) return;
@@ -205,13 +196,12 @@ function openSellMenu_Hand(player) {
             return;
         }
 
-        // 再取得して確認
         const currentItem = equip.getEquipment(EquipmentSlot.Mainhand);
         if (!currentItem) return;
 
         const result = MarketDataManager.addListing(player, currentItem, price);
         if (result.success) {
-            equip.setEquipment(EquipmentSlot.Mainhand, undefined); // アイテム消去
+            equip.setEquipment(EquipmentSlot.Mainhand, undefined);
             player.playSound("random.orb");
             player.sendMessage(result.message);
         } else {
@@ -220,7 +210,7 @@ function openSellMenu_Hand(player) {
     });
 }
 
-// コマンドからの出品処理 (/scriptevent deepcraft:sell 1000)
+// コマンドからの出品処理
 export function processCommandSell(player, message) {
     const price = parseInt(message);
     if (isNaN(price) || price <= 0) {
@@ -246,6 +236,7 @@ export function processCommandSell(player, message) {
     }
 }
 
+// 購入確認フォーム (MessageFormData)
 function confirmPurchase(player, item) {
     if (item.ownerId === player.id) {
         player.sendMessage("§c自分の出品物は購入できません。");
@@ -253,13 +244,21 @@ function confirmPurchase(player, item) {
         return;
     }
 
-    const form = new ModalFormData()
+    // ★修正: ModalFormData -> MessageFormData に変更
+    // ★修正: content -> body に変更
+    // ★修正: submitButton -> button1, button2 に変更
+    const form = new MessageFormData()
         .title("購入確認")
-        .content(`§f商品: ${item.nameTag || "アイテム"} x${item.amount}\n§e価格: ${item.price} G\n\n§7購入しますか？`)
-        .submitButton("§a購入する");
+        .body(`§f商品: ${item.nameTag || "アイテム"} x${item.amount}\n§e価格: ${item.price} G\n\n§7購入しますか？`)
+        .button1("§a購入する")
+        .button2("キャンセル");
 
     form.show(player).then(res => {
-        if (res.canceled) { openMarketMenu(player); return; }
+        // MessageFormDataの場合、canceledがtrue または selectionが0(購入)以外ならキャンセル扱い
+        if (res.canceled || res.selection !== 0) { 
+            openMarketMenu(player); 
+            return; 
+        }
 
         const result = MarketDataManager.purchaseListing(player, item.id);
         if (result === "success") {
@@ -303,7 +302,7 @@ function openMailbox(player) {
                 container.addItem(item);
                 itemReceived++;
             } else {
-                newMailbox.push(mail); // インベントリ満タンなら戻す
+                newMailbox.push(mail);
             }
         }
     });
@@ -322,5 +321,4 @@ function openMailbox(player) {
 
     world.setDynamicProperty(key, JSON.stringify(newMailbox));
     player.playSound("random.orb");
-    // 更新後のポスト状態を見るためメニュー再表示はしない（閉じる）
 }
