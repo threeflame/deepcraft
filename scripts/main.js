@@ -217,9 +217,27 @@ function executeSkill(player, skillId) {
 function calculateEntityStats(entity) {
     const stats = {
         atk: 0, def: 0, critChance: CONFIG.COMBAT.BASE_CRIT_CHANCE, critMult: CONFIG.COMBAT.BASE_CRIT_MULT,
-        speed: 1.0, maxEther: 0, etherRegen: 0, maxHP: 100,
-        evasion: 0 // ★追加: 回避率
+        speed: 1.0, maxEther: 0, etherRegen: 0, maxHP: 100, evasion: 0,
+        // 詳細表示用の内訳リスト
+        details: { atk: [], def: [], critChance: [], critMult: [], ether: [], regen: [], speed: [], evasion: [] }
     };
+    
+    // 内訳記録用ヘルパー
+    const addDetail = (key, source, value, isRate = false, isMult = false) => {
+        if (value === 0) return;
+        let valStr = "";
+        if (isMult) valStr = `x${value.toFixed(1)}`;
+        else if (isRate) valStr = `${value > 0 ? '+' : ''}${(value*100).toFixed(1)}%`;
+        else valStr = `${value > 0 ? '+' : ''}${value.toFixed(1)}`;
+        stats.details[key].push(`§7${source}: §f${valStr}`);
+    };
+
+    // 基礎値の記録
+    addDetail('critChance', '基礎値', CONFIG.COMBAT.BASE_CRIT_CHANCE, true);
+    addDetail('critMult', '基礎値', CONFIG.COMBAT.BASE_CRIT_MULT, true);
+    addDetail('ether', '基礎値', CONFIG.ETHER_BASE);
+    addDetail('regen', '基礎値', CONFIG.ETHER_REGEN_BASE);
+    addDetail('speed', '基礎値', 1.0, true);
 
     if (entity.typeId === "minecraft:player") {
         const str = entity.getDynamicProperty("deepcraft:strength") || 0;
@@ -241,51 +259,80 @@ function calculateEntityStats(entity) {
             equipStats.def += getEquipmentStats(equip.getEquipment(slot)).def;
         });
 
-        // ATK
+        // ATK Calculation
         let atk = level + (str * 0.5) + equipStats.atk;
-        if (entity.hasTag("talent:brute_force")) atk += 2;
-        if (entity.hasTag("talent:glass_cannon")) atk *= 1.5;
-        if (entity.hasTag("talent:sharp_blade")) atk *= 1.1;
+        addDetail('atk', 'レベル', level);
+        addDetail('atk', '筋力(Str)', str * 0.5);
+        addDetail('atk', '武器', equipStats.atk);
+
+        if (entity.hasTag("talent:brute_force")) { atk += 2; addDetail('atk', 'Brute Force', 2); }
+        
+        // 倍率補正
+        if (entity.hasTag("talent:glass_cannon")) { atk *= 1.5; addDetail('atk', 'Glass Cannon', 1.5, false, true); }
+        if (entity.hasTag("talent:sharp_blade")) { atk *= 1.1; addDetail('atk', 'Sharp Blade', 1.1, false, true); }
         
         const hpProp = entity.getDynamicProperty("deepcraft:hp") || 100;
         const hpMaxProp = entity.getDynamicProperty("deepcraft:max_hp") || 100;
-        if (entity.hasTag("talent:berserker") && (hpProp / hpMaxProp < 0.3)) atk *= 1.5;
-        if (entity.hasTag("talent:assassin") && entity.isSneaking) atk *= 2.0;
+        if (entity.hasTag("talent:berserker") && (hpProp / hpMaxProp < 0.3)) { atk *= 1.5; addDetail('atk', 'Berserker', 1.5, false, true); }
+        if (entity.hasTag("talent:assassin") && entity.isSneaking) { atk *= 2.0; addDetail('atk', 'Assassin', 2.0, false, true); }
+        
         stats.atk = Math.floor(atk);
 
-        // Crit
-        stats.critChance += (agi * 0.001) + (int * 0.0005);
-        if (entity.hasTag("talent:eagle_eye")) stats.critChance += 0.1;
-        stats.critMult += (str * 0.005);
+        // Crit Calculation
+        const agiCrit = agi * 0.001;
+        const intCrit = int * 0.0005;
+        stats.critChance += agiCrit + intCrit;
+        addDetail('critChance', '敏捷(Agi)', agiCrit, true);
+        addDetail('critChance', '知性(Int)', intCrit, true);
 
-        // DEF
+        if (entity.hasTag("talent:eagle_eye")) { stats.critChance += 0.1; addDetail('critChance', 'Eagle Eye', 0.1, true); }
+        
+        const strCritMult = str * 0.005;
+        stats.critMult += strCritMult;
+        addDetail('critMult', '筋力(Str)', strCritMult, true);
+
+        // DEF Calculation
         let def = defStat + (fort * CONFIG.COMBAT.DEFENSE_CONSTANT) + equipStats.def;
-        if (entity.hasTag("talent:tough_skin")) def += 2;
-        if (entity.hasTag("talent:iron_wall")) def += 5;
-        if (entity.hasTag("talent:last_stand") && (hpProp / hpMaxProp < 0.3)) def *= 1.5;
+        addDetail('def', '防御(Def)', defStat);
+        addDetail('def', '不屈(Fort)', fort * CONFIG.COMBAT.DEFENSE_CONSTANT);
+        addDetail('def', '防具', equipStats.def);
+
+        if (entity.hasTag("talent:tough_skin")) { def += 2; addDetail('def', 'Tough Skin', 2); }
+        if (entity.hasTag("talent:iron_wall")) { def += 5; addDetail('def', 'Iron Wall', 5); }
+        if (entity.hasTag("talent:last_stand") && (hpProp / hpMaxProp < 0.3)) { def *= 1.5; addDetail('def', 'Last Stand', 1.5, false, true); }
         stats.def = Math.floor(def);
 
-        // Ether
-        stats.maxEther = Math.floor(CONFIG.ETHER_BASE + (int * CONFIG.ETHER_PER_INT));
-        stats.etherRegen = CONFIG.ETHER_REGEN_BASE + (will * CONFIG.ETHER_REGEN_PER_WILL);
+        // Ether Calculation
+        const intEther = int * CONFIG.ETHER_PER_INT;
+        stats.maxEther += intEther;
+        addDetail('ether', '知性(Int)', intEther);
 
-        // Max HP
+        const willRegen = will * CONFIG.ETHER_REGEN_PER_WILL;
+        stats.etherRegen += willRegen;
+        addDetail('regen', '意志(Will)', willRegen);
+
+        // HP Calculation
         let hp = 18 + (fort * 2);
         if (entity.hasTag("talent:vitality_1")) hp += 4;
         if (entity.hasTag("talent:vitality_2")) hp += 10;
         if (entity.hasTag("talent:glass_cannon")) hp = Math.floor(hp * 0.5);
         stats.maxHP = Math.floor(hp);
 
-        // Speed
+        // Speed Calculation
         let speedIndex = 10 + Math.floor(agi * 0.2);
-        if (entity.hasTag("talent:swift_1")) speedIndex += 5; 
-        if (entity.hasTag("talent:godspeed")) speedIndex += 15;
-        if (entity.hasTag("debuff:heavy_armor")) speedIndex = Math.max(5, speedIndex - 10);
+        let speedBonus = (Math.floor(agi * 0.2) / 100); // 0.2% per Agi
+        addDetail('speed', '敏捷(Agi)', speedBonus, true);
+
+        if (entity.hasTag("talent:swift_1")) { speedIndex += 5; addDetail('speed', 'Swiftness', 0.05, true); }
+        if (entity.hasTag("talent:godspeed")) { speedIndex += 15; addDetail('speed', 'Godspeed', 0.15, true); }
+        if (entity.hasTag("debuff:heavy_armor")) { speedIndex = Math.max(5, speedIndex - 10); addDetail('speed', '重量過多', -0.1, true); }
         stats.speed = speedIndex * 0.01;
 
-        // ★追加: 回避率 (Evasion)
-        if (entity.hasTag("talent:evasion")) stats.evasion += 0.15;
-        stats.evasion += (agi * 0.001);
+        // Evasion Calculation
+        if (entity.hasTag("talent:evasion")) { stats.evasion += 0.15; addDetail('evasion', 'Evasion', 0.15, true); }
+        const agiEvasion = agi * 0.001;
+        stats.evasion += agiEvasion;
+        addDetail('evasion', '敏捷(Agi)', agiEvasion, true);
 
     } else {
         // Mob
@@ -806,16 +853,22 @@ function openDetailStats(player) {
     const form = new ChestFormData("small");
     form.title("§lキャラクター詳細");
     
-    form.button(10, `§c§l攻撃力: ${stats.atk}`, ["§7物理攻撃力 (Total ATK)"], "minecraft:iron_sword");
-    form.button(11, `§b§l防御力: ${stats.def}`, ["§7ダメージ軽減量 (Total DEF)"], "minecraft:shield");
-    form.button(12, `§e§l会心率: ${(stats.critChance * 100).toFixed(1)}%`, ["§7クリティカル発生率"], "minecraft:gold_nugget");
-    form.button(13, `§6§l会心倍率: ${(stats.critMult * 100).toFixed(0)}%`, ["§7クリティカル時のダメージ倍率"], "minecraft:blaze_powder");
-    
-    form.button(14, `§3§lエーテル: ${stats.maxEther}`, [`§7自然回復: ${stats.etherRegen.toFixed(1)}/秒`], "minecraft:phantom_membrane");
-    form.button(15, `§f§l速度: ${(stats.speed * 100).toFixed(0)}%`, ["§7移動速度"], "minecraft:feather");
-    
-    // ★追加: 回避率の表示
-    form.button(16, `§a§l回避率: ${(stats.evasion * 100).toFixed(1)}%`, ["§7ダメージ完全無効化率"], "minecraft:sugar");
+    // 内訳を説明文として結合する
+    const atkDesc = ["§7物理攻撃力 (Total ATK)", "§8----------------", ...stats.details.atk];
+    const defDesc = ["§7ダメージ軽減量 (Total DEF)", "§8----------------", ...stats.details.def];
+    const critCDesc = ["§7クリティカル発生率", "§8----------------", ...stats.details.critChance];
+    const critMDesc = ["§7クリティカル時のダメージ倍率", "§8----------------", ...stats.details.critMult];
+    const etherDesc = [`§7自然回復: ${stats.etherRegen.toFixed(1)}/秒`, "§8----------------", ...stats.details.ether, ...stats.details.regen];
+    const speedDesc = ["§7移動速度", "§8----------------", ...stats.details.speed];
+    const evaDesc = ["§7ダメージ完全無効化率", "§8----------------", ...stats.details.evasion];
+
+    form.button(10, `§c§l攻撃力: ${stats.atk}`, atkDesc, "minecraft:iron_sword");
+    form.button(11, `§b§l防御力: ${stats.def}`, defDesc, "minecraft:shield");
+    form.button(12, `§e§l会心率: ${(stats.critChance * 100).toFixed(1)}%`, critCDesc, "minecraft:gold_nugget");
+    form.button(13, `§6§l会心倍率: ${(stats.critMult * 100).toFixed(0)}%`, critMDesc, "minecraft:blaze_powder");
+    form.button(14, `§3§lエーテル: ${stats.maxEther}`, etherDesc, "minecraft:phantom_membrane");
+    form.button(15, `§f§l速度: ${(stats.speed * 100).toFixed(0)}%`, speedDesc, "minecraft:feather");
+    form.button(16, `§a§l回避率: ${(stats.evasion * 100).toFixed(1)}%`, evaDesc, "minecraft:sugar");
     
     form.button(26, "§c§l戻る", ["§rメニューへ戻る"], "minecraft:barrier");
     form.show(player).then(res => {
