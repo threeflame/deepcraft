@@ -678,16 +678,36 @@ function giveCustomItem(player, itemId) {
 
 function summonBoss(player, bossId) {
     const def = MOB_POOL[bossId];
-    if (!def) { player.sendMessage(`§cボスIDが見つかりません。`); return; }
+    if (!def) { player.sendMessage(`§cBoss ID not found.`); return; }
     try {
         const boss = player.dimension.spawnEntity(def.type, player.location);
-        boss.addTag("deepcraft:boss");
+        
+        // --- IDと名前の設定 ---
         boss.setDynamicProperty("deepcraft:boss_id", bossId);
         boss.nameTag = def.name;
         
+        // --- ★修正: ダミー判定とタグ・エフェクト処理 ---
+        if (def.isDummy) {
+            // ダミー用: HPバー表示タグ + 移動/攻撃封じ
+            boss.addTag("deepcraft:boss");
+            // 強力な鈍足と弱体化を長時間付与 (20000000 tick)
+            boss.addEffect("slowness", 20000000, { amplifier: 255, showParticles: false });
+            boss.addEffect("weakness", 20000000, { amplifier: 255, showParticles: false });
+        } else {
+            // 通常ボス用: HPバー表示タグ
+            boss.addTag("deepcraft:boss");
+            // 通常ボスには少し耐性を付ける（既存処理の維持）
+            boss.addEffect("resistance", 20000000, { amplifier: 1, showParticles: false });
+        }
+
+        // --- HP設定 ---
         const hp = boss.getComponent("minecraft:health");
-        if (hp) boss.addEffect("resistance", 20000000, { amplifier: 1, showParticles: false });
+        if (hp) {
+            // 現在の最大値まで回復させておく
+            hp.setCurrentValue(hp.effectiveMax);
+        }
         
+        // --- 装備設定 ---
         const equip = boss.getComponent("equippable");
         if (equip && def.equipment) {
             if (def.equipment.mainhand) equip.setEquipment(EquipmentSlot.Mainhand, createCustomItem(def.equipment.mainhand));
@@ -696,13 +716,16 @@ function summonBoss(player, bossId) {
             if (def.equipment.legs) equip.setEquipment(EquipmentSlot.Legs, new ItemStack(def.equipment.legs));
             if (def.equipment.feet) equip.setEquipment(EquipmentSlot.Feet, new ItemStack(def.equipment.feet));
         }
-        if (def.speed) {
+
+        // --- 移動速度設定 (ダミー以外) ---
+        if (def.speed !== undefined && !def.isDummy) {
             const movement = boss.getComponent("minecraft:movement");
             if (movement) movement.setCurrentValue(def.speed);
         }
-        player.sendMessage(`§c§l警告: ${def.name} が出現しました！`);
+
+        player.sendMessage(`§c§lWARNING: ${def.name} has appeared!`);
         player.playSound("mob.enderdragon.growl");
-    } catch (e) { player.sendMessage(`§cエラー: ${e}`); }
+    } catch (e) { player.sendMessage(`§cError: ${e}`); }
 }
 
 function createCustomItem(itemId) {

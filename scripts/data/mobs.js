@@ -6,7 +6,7 @@ export const MOB_POOL = {
         type: "minecraft:husk",      // 日光で燃えないハスクを使用
         health: 1000,                // 検証用に超高体力に設定
         scale: 1.0,
-        speed: 0.0,                  // 移動させない
+        isDummy: true,
         equipment: {
             // 防具なし（素のダメージ検証用）
         },
@@ -26,7 +26,7 @@ export const MOB_POOL = {
             }
         ]
     },
-    
+
     "bandit_leader": {
         name: "§c§lBandit Leader",
         type: "minecraft:husk", 
