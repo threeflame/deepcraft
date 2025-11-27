@@ -3,63 +3,55 @@
 /*
 ==========================================================================
  🧠 AI CONTEXT MEMORY (DeepCraft Development Log)
- Version: 11.0 (Combat Overhaul & Stat Logic Finalization)
+ Version: 15.0 (Critical Logic Protection & Stability Fixes)
 ==========================================================================
 
-## 1. Project Overview / プロジェクト概要
+## 1. Project Overview
 - **Title**: DeepCraft
 - **Concept**: Deepwoken-inspired PvPvE RPG (Hardcore / Stat Building).
 - **Environment**: Minecraft BE Script API.
 - **Library**: Chest-UI.
 
-## 2. ⚠️ Technical Constraints & Ban List (重要: 使用禁止・非推奨コード)
-1.  **[BANNED] `world.beforeEvents.entityHurt`**
-    * Reason: 不安定かつダメージ操作が反映されないため。
-    * Solution: `world.afterEvents.entityHurt` で処理する。
+## 2. ⚠️ Technical Constraints & Ban List (絶対に使用禁止)
+1.  **[BANNED] `world.beforeEvents.entityHurt`**: 動作不安定のため使用禁止。全て `afterEvents` で処理する。
+2.  **[BANNED] `world.afterEvents.chatSend`**: チャットコマンド廃止。`/scriptevent` を使用する。
+3.  **[BANNED] `entity.playSound()`**: Mobにメソッドがないため `dimension.playSound` を使用する。
+4.  **[BANNED] Separate `processLevelUp` Function**:
+    * **理由**: 関数を分けるとデータの保存タイミングがズレて「ポイントがマイナスになるバグ」が再発する。
+    * **解決策**: レベルアップ処理は全て `upgradeStat` 関数内に記述し、1回の処理で完結させること。
 
-2.  **[RESTRICTED] `applyDamage()` inside `entityHurt`**
-    * Reason: 無限ループ（再帰発火）のリスクがある。また、バニラのノックバックと重複する可能性がある。
-    * Solution: 基本的に `healthComponent.setCurrentValue()` でHPを直接減らす。トドメ（キルログが必要な場合）のみ `applyDamage` を使う。
+## 3. 🛡️ Critical Implementation Rules (修正時・上書き禁止事項)
+以下のロジックはバグ修正の末に確立された「正解」であり、変更してはならない。
 
-3.  **[BANNED] `world.afterEvents.chatSend` (!cmd)**
-    * Solution: `/scriptevent deepcraft:command` を使用。
+### A. Level Up Logic (`upgradeStat`)
+- **Atomic Update**: ポイント加算とレベルアップ判定は同時に行い、`setDynamicProperty` は分岐後に**1回だけ**実行する。
+- **Reset Requirement**: 投資ポイント(`invested_points`)が15に達したら、**必ず `0` を保存する**。
+  - ❌ `15` を保存してから `0` にする（バグの原因）
+  - ⭕ 分岐して `0` を直接保存する
 
-4.  **[BANNED] `entity.playSound()`**
-    * Solution: `dimension.playSound(id, location)` を使用。
+### B. HP System (Virtual HP)
+- **Vanilla HP**: `player.json` で **200** に固定。
+- **Damage Handling**: `entityHurt` の**一番最初**に `resetToMax()` を実行し、バニラダメージを帳消しにする。
+- **Virtual HP**: スクリプト上の `deepcraft:hp` を計算で減算する。
+- **Death**: 仮想HP <= 0 で `kill` コマンドを実行（`applyDamage`では死なないため）。
 
-## 3. File Structure / ファイル構成
-- `main.js`: Core Logic (Combat, UI, Stats, Events).
-- `config.js`: Constants (Stats cap, Ether settings).
-- `data/*.js`: Content Definitions (Talents, Items, Mobs, Quests).
+### C. Combat & Desync Fixes
+- **I-Frame**: スクリプトによる無敵時間管理は**廃止**（バニラ準拠）。
+- **Hitbox Desync**: `playerSpawn` 時に `triggerEvent("scale_reset")` ではなく、**2tick遅延して処理**する等の対策が必要（現状はScale削除により対応済み）。
+- **Combat Mode**: 死亡時(`entityDie`)に必ず `combat_timer` を `0` にリセットする（無限キルループ防止）。
 
-## 4. Current Mechanics / 実装済みの仕様
+## 4. Current Mechanics / 現在の仕様
 
-### A. Combat System (Logic: Direct HP Manipulation)
-- **Damage Process**:
-  1.  **I-Frame Check**: 独自の0.5秒（10tick）クールダウンで連打/多段ヒットを防止。
-  2.  **Refund**: バニラのダメージを即時回復して帳消しにする（ノックバックは残る）。
-  3.  **Calculation**: `(Base + Weapon + Buffs) * Crit` で攻撃力を算出。
-  4.  **Apply**: `Max(1, Attack - Defense)` を計算し、**HP数値を直接書き換えて**減らす。
-- **Critical**:
-  - Chance: `5% + (Agi * 0.1) + (Int * 0.05)`.
-  - Damage: `1.5x + (Str * 0.005)`.
-  - Effect: Sound (`random.anvil_land`) & Particle (`critical_hit_emitter`).
-- **Evasion**: `(Agi * 0.1)%` + Talent to negate damage.
+### Stats & Progression
+- **Max Level**: 20.
+- **Stat Points**: 15 points per level. Total **300**.
+- **Stat Cap**: 100 per stat.
+- **Initial Stats**: All 0.
 
-### B. Stats & Progression
-- **Level Cap**: Lv 20.
-- **Stat Points**: 15 points per level. Total **300** points (Lv20 + Bonus).
-- **Stat Cap**: Max **100** per stat.
-- **Initial Stats**: All **0**.
-- **Ether (Mana)**:
-  - Max: `20 + (Intelligence * 2.5)`.
-  - Regen: `1.0 + (Willpower * 0.2)` / sec.
-- **Menu**: Detailed stat view implemented (`calculateEntityStats` shared logic).
-
-### C. Content
-- **Talents**: Categorized (Warrior, Mage, Rogue, Survivor). Completion unlocks Legendary.
-- **Equipment**: Custom `atk` / `def` parameters added to `equipment.js`.
-- **Bosses**: 3 Custom Bosses with AI.
+### Economy
+- **Currency**: Gold (`deepcraft:gold`).
+- **Market**: Global listing system using chunked dynamic properties.
+  - Listing via: Menu button (Hand item) OR Command `/scriptevent deepcraft:sell <price>`.
 
 ==========================================================================
 */

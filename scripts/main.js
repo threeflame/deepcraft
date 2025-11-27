@@ -57,11 +57,11 @@ function initializePlayer(player) {
 
 // --- System Loop (Main Cycle) ---
 
-system.runInterval(() => {
    system.runInterval(() => {
-    try {
-        // 1. Player Loop
-        world.getAllPlayers().forEach(player => {
+    // 1. Player Loop
+    // ★修正: 全体のtry-catchではなく、プレイヤーごとの処理内でエラーをキャッチするように変更
+    world.getAllPlayers().forEach(player => {
+        try {
             if (!player.isValid()) return;
 
             // データ自動修復
@@ -77,14 +77,16 @@ system.runInterval(() => {
             // Ether Logic
             const maxEther = Math.floor(CONFIG.ETHER_BASE + (intelligence * CONFIG.ETHER_PER_INT));
             let currentEther = player.getDynamicProperty("deepcraft:ether") || 0;
+            // 0.1秒ごとの回復量 (1秒あたりの1/10)
             const regenRate = CONFIG.ETHER_REGEN_BASE + (willpower * CONFIG.ETHER_REGEN_PER_WILL);
             const tickRegen = regenRate / 10; 
+            
             if (currentEther < maxEther) {
                 currentEther = Math.min(maxEther, currentEther + tickRegen);
                 player.setDynamicProperty("deepcraft:ether", currentEther);
             }
 
-            // ★コンバットタイマー処理 (減算)
+            // コンバットタイマー処理
             let combatTimer = player.getDynamicProperty("deepcraft:combat_timer") || 0;
             if (combatTimer > 0) {
                 combatTimer = Math.max(0, combatTimer - 0.1);
@@ -100,33 +102,37 @@ system.runInterval(() => {
             const etherBarDisplay = "§b" + "■".repeat(etherFill) + "§8" + "■".repeat(etherBarLen - etherFill);
             const gold = player.getDynamicProperty("deepcraft:gold") || 0;
 
-            // ★HUDテキスト構築
             let hudText = `§cHP: ${currentHP}/${maxHP}   ` +
                           `§3Ether: ${etherBarDisplay} ${Math.floor(currentEther)}/${maxEther}\n` +
                           `§eLv.${level}   §fXP:${xp}/${reqXp}   §6${gold} G`;
             
-            // 戦闘中は赤文字を追加表示
             if (combatTimer > 0) {
                 hudText += `\n§c§l⚔ COMBAT: ${combatTimer.toFixed(1)}s ⚔`;
             }
 
             player.onScreenDisplay.setActionBar(hudText);
-            
+
             applyEquipmentPenalties(player);
             applyNumericalPassives(player);
             applyStatsToEntity(player);
-        });
 
-        // 2. Boss Loop
+        } catch (e) {
+            // 個別のプレイヤーのエラーはここで止める（他のプレイヤーに影響させない）
+            // console.warn(`Player Update Error: ${e}`); 
+        }
+    });
+
+    // 2. Boss Loop
+    try {
         world.getDimension("overworld").getEntities({ tags: ["deepcraft:boss"] }).forEach(boss => {
             updateMobNameTag(boss);
             processBossSkillAI(boss);
         });
-
     } catch (e) {
-        console.warn("System Loop Error: " + e);
+        console.warn("Boss Loop Error: " + e);
     }
-}, 2);
+
+}, 2); // 0.1秒ごとに実行
 
 function getXpCostForLevel(level) {
     return CONFIG.XP_BASE_COST + (level * CONFIG.XP_LEVEL_MULTIPLIER);
@@ -612,23 +618,22 @@ world.afterEvents.entityDie.subscribe((ev) => {
             if (attacker.hasTag("talent:exp_boost")) addXP(attacker, 50);
         }
 
-        // プレイヤー死亡時の処理 (Soul生成)
+        // プレイヤー死亡時の処理
         if (victim.typeId === "minecraft:player") {
             const player = victim;
             
+            // ★重要修正: 死亡したらコンバット状態を解除 (無限ループ防止)
+            player.setDynamicProperty("deepcraft:combat_timer", 0);
+
             // 仮想HPリセット
             player.setDynamicProperty("deepcraft:hp", player.getDynamicProperty("deepcraft:max_hp"));
-            
-            // XPロスト
+
             const lostXP = player.getDynamicProperty("deepcraft:xp") || 0;
             player.setDynamicProperty("deepcraft:xp", 0);
             if (lostXP > 0) player.sendMessage(`§c死亡により ${lostXP} XPを失いました...`);
 
-            // アイテム保存ロジック
             const inventory = player.getComponent("inventory").container;
-            const deathDimension = player.dimension;
-            const deathLocation = player.location; // 死亡座標を確保
-
+            const location = player.location;
             let droppedItems = [];
             for (let i = 0; i < inventory.size; i++) {
                 const item = inventory.getItem(i);
@@ -639,34 +644,18 @@ world.afterEvents.entityDie.subscribe((ev) => {
                     }
                 }
             }
-
-            // Soul生成を1tick遅らせることで、死亡直後の不安定な状態や同時死亡の競合を回避
             if (droppedItems.length > 0) {
-                system.runTimeout(() => {
-                    try {
-                        const spawnLoc = { x: deathLocation.x, y: deathLocation.y + 3.0 , z: deathLocation.z };
-                        const soul = deathDimension.spawnEntity("minecraft:chest_minecart", spawnLoc);
-                        soul.nameTag = "§b魂 (Soul)";
-                        
-                        // Soulの所有権を設定（マルチプレイ用：他人が開けられないようにする拡張用）
-                        soul.setDynamicProperty("owner_id", player.id);
-                        soul.setDynamicProperty("is_soul", true);
-
-                        const soulContainer = soul.getComponent("inventory").container;
-                        droppedItems.forEach(item => soulContainer.addItem(item));
-                        
-                        // プレイヤーに通知（リスポーン後に届く可能性が高い）
-                        const returningPlayer = world.getAllPlayers().find(p => p.id === player.id);
-                        if (returningPlayer) {
-                            returningPlayer.sendMessage(`§bアイテムを魂として座標 [${Math.floor(spawnLoc.x)}, ${Math.floor(spawnLoc.y)}, ${Math.floor(spawnLoc.z)}] に残しました。`);
-                        }
-                    } catch (e) {
-                        console.warn("Soul Spawn Error: " + e);
-                    }
-                }, 1); // 1tick遅延
+                try {
+                    const spawnLoc = { x: location.x, y: location.y + 1.0, z: location.z };
+                    const soul = player.dimension.spawnEntity("minecraft:chest_minecart", spawnLoc);
+                    soul.nameTag = "§b魂 (Soul)";
+                    const soulContainer = soul.getComponent("inventory").container;
+                    droppedItems.forEach(item => soulContainer.addItem(item));
+                    player.sendMessage(`§bアイテムを魂として座標 [${Math.floor(spawnLoc.x)}, ${Math.floor(spawnLoc.y)}, ${Math.floor(spawnLoc.z)}] に残しました。`);
+                } catch (e) {}
             }
         }
-    } catch(e) { console.warn("Entity Die Error: " + e); }
+    } catch(e) { console.warn(e); }
 });
 
 function acceptQuest(player, questId) {
