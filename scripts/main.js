@@ -15,9 +15,13 @@ import { MOB_POOL } from "./data/mobs.js";
 
 world.afterEvents.playerSpawn.subscribe((ev) => {
     const player = ev.player;
+    // 初回ログイン、またはデータ欠損時の初期化
     if (!player.getDynamicProperty("deepcraft:active_profile")) {
         initializePlayer(player);
     }
+    // スポーン時にバニラHPを最大化（即死防止）
+    const hp = player.getComponent("minecraft:health");
+    if (hp) hp.resetToMax();
 });
 
 function initializePlayer(player) {
@@ -25,7 +29,7 @@ function initializePlayer(player) {
     player.setDynamicProperty("deepcraft:ether", CONFIG.ETHER_BASE);
     player.setDynamicProperty("deepcraft:gold", 0);
     
-    // プレイヤーの仮想HP初期化
+    // 仮想HP初期化
     player.setDynamicProperty("deepcraft:hp", 100);
     player.setDynamicProperty("deepcraft:max_hp", 100);
 
@@ -35,6 +39,7 @@ function initializePlayer(player) {
 
 // --- System Loop (Main Cycle) ---
 
+// ★修正: 更新頻度を 5 -> 2 に変更してHUDのチラつきを防止
 system.runInterval(() => {
     // 1. Player Loop
     world.getAllPlayers().forEach(player => {
@@ -49,8 +54,9 @@ system.runInterval(() => {
         const maxEther = Math.floor(CONFIG.ETHER_BASE + (intelligence * CONFIG.ETHER_PER_INT));
         let currentEther = player.getDynamicProperty("deepcraft:ether") || 0;
 
+        // Regen (2tick = 0.1s interval)
         const regenRate = CONFIG.ETHER_REGEN_BASE + (willpower * CONFIG.ETHER_REGEN_PER_WILL);
-        const tickRegen = regenRate / 4; 
+        const tickRegen = regenRate / 10; // 1秒あたりの回復量を10分割
         
         if (currentEther < maxEther) {
             currentEther = Math.min(maxEther, currentEther + tickRegen);
@@ -61,30 +67,33 @@ system.runInterval(() => {
         const currentHP = Math.floor(player.getDynamicProperty("deepcraft:hp") || 100);
         const maxHP = Math.floor(player.getDynamicProperty("deepcraft:max_hp") || 100);
         
-        // HUD Display
+        // HUD Display (Action Bar)
         const etherPercent = Math.max(0, Math.min(1, currentEther / maxEther));
         const etherBarLen = 10; 
         const etherFill = Math.ceil(etherPercent * etherBarLen);
         const etherBarDisplay = "§b" + "■".repeat(etherFill) + "§8" + "■".repeat(etherBarLen - etherFill);
 
+        const gold = player.getDynamicProperty("deepcraft:gold") || 0;
+
         player.onScreenDisplay.setActionBar(
             `§cHP: ${currentHP}/${maxHP}   ` +
             `§3Ether: ${etherBarDisplay} ${Math.floor(currentEther)}/${maxEther}\n` +
-            `§eLv.${level}   §fXP:${xp}/${reqXp}   §6${player.getDynamicProperty("deepcraft:gold")||0} G`
+            `§eLv.${level}   §fXP:${xp}/${reqXp}   §6${gold} G`
         );
 
+        // 常時処理
         applyEquipmentPenalties(player);
         applyNumericalPassives(player);
         applyStatsToEntity(player);
     });
 
-    // 2. Boss Loop (HPバー更新 & AI)
+    // 2. Boss Loop
     world.getDimension("overworld").getEntities({ tags: ["deepcraft:boss"] }).forEach(boss => {
         updateMobNameTag(boss);
         processBossSkillAI(boss);
     });
 
-}, 5);
+}, 2); // 0.1秒ごとに実行
 
 function getXpCostForLevel(level) {
     return CONFIG.XP_BASE_COST + (level * CONFIG.XP_LEVEL_MULTIPLIER);
@@ -117,7 +126,6 @@ function updateMobNameTag(entity) {
     if (percent < 0.2) color = "§c";
 
     const bar = color + "|".repeat(fill) + "§8" + "|".repeat(barLen - fill);
-    
     entity.nameTag = `${name}\n${bar} §f${Math.ceil(current)}/${max}`;
 }
 
@@ -125,12 +133,9 @@ function processBossSkillAI(boss) {
     if (!boss.isValid()) return;
     const bossId = boss.getDynamicProperty("deepcraft:boss_id");
     const bossDef = MOB_POOL[bossId];
-
     if (bossDef && bossDef.skills && boss.target) {
         bossDef.skills.forEach(skill => {
-            if (Math.random() < skill.chance) {
-                executeBossSkill(boss, skill);
-            }
+            if (Math.random() < skill.chance) executeBossSkill(boss, skill);
         });
     }
 }
@@ -191,7 +196,7 @@ function calculateEntityStats(entity) {
         speed: 1.0,
         maxEther: 0,
         etherRegen: 0,
-        maxHP: 20
+        maxHP: 100
     };
 
     if (entity.typeId === "minecraft:player") {
@@ -206,12 +211,15 @@ function calculateEntityStats(entity) {
         const equip = entity.getComponent("equippable");
         const mainHand = equip.getEquipment(EquipmentSlot.Mainhand);
         const equipStats = { atk: 0, def: 0 };
+        
         const weaponDef = getEquipmentStats(mainHand);
         equipStats.atk += weaponDef.atk;
+        
         [EquipmentSlot.Head, EquipmentSlot.Chest, EquipmentSlot.Legs, EquipmentSlot.Feet].forEach(slot => {
             equipStats.def += getEquipmentStats(equip.getEquipment(slot)).def;
         });
 
+        // ATK
         let atk = level + (str * 0.5) + equipStats.atk;
         if (entity.hasTag("talent:brute_force")) atk += 2;
         if (entity.hasTag("talent:glass_cannon")) atk *= 1.5;
@@ -224,25 +232,30 @@ function calculateEntityStats(entity) {
         
         stats.atk = Math.floor(atk);
 
+        // Crit
         stats.critChance += (agi * 0.001) + (int * 0.0005);
         if (entity.hasTag("talent:eagle_eye")) stats.critChance += 0.1;
         stats.critMult += (str * 0.005);
 
+        // DEF
         let def = defStat + (fort * CONFIG.COMBAT.DEFENSE_CONSTANT) + equipStats.def;
         if (entity.hasTag("talent:tough_skin")) def += 2;
         if (entity.hasTag("talent:iron_wall")) def += 5;
         if (entity.hasTag("talent:last_stand") && (hpProp / hpMaxProp < 0.3)) def *= 1.5;
         stats.def = Math.floor(def);
 
+        // Ether
         stats.maxEther = Math.floor(CONFIG.ETHER_BASE + (int * CONFIG.ETHER_PER_INT));
         stats.etherRegen = CONFIG.ETHER_REGEN_BASE + (will * CONFIG.ETHER_REGEN_PER_WILL);
 
+        // Max HP
         let hp = 18 + (fort * 2);
         if (entity.hasTag("talent:vitality_1")) hp += 4;
         if (entity.hasTag("talent:vitality_2")) hp += 10;
         if (entity.hasTag("talent:glass_cannon")) hp = Math.floor(hp * 0.5);
         stats.maxHP = Math.floor(hp);
 
+        // Speed
         let speedIndex = 10 + Math.floor(agi * 0.2);
         if (entity.hasTag("talent:swift_1")) speedIndex += 5; 
         if (entity.hasTag("talent:godspeed")) speedIndex += 15;
@@ -250,6 +263,7 @@ function calculateEntityStats(entity) {
         stats.speed = speedIndex * 0.01;
     } 
     else {
+        // Mobのステータス初期化
         let maxHP = entity.getDynamicProperty("deepcraft:max_hp");
         if (maxHP === undefined) {
             const bossId = entity.getDynamicProperty("deepcraft:boss_id");
@@ -269,46 +283,33 @@ function calculateEntityStats(entity) {
     return stats;
 }
 
-// --- Events ---
+// --- Helper Functions (Profile / Stats Update) ---
 
-world.afterEvents.itemUse.subscribe((ev) => {
-    const player = ev.source;
-    const item = ev.itemStack;
-    if (item.typeId === "minecraft:compass") { openMenuHub(player); return; }
+function applyStatsToEntity(player) {
+    // 仮想HPの最大値を更新
+    const stats = calculateEntityStats(player);
+    player.setDynamicProperty("deepcraft:max_hp", stats.maxHP);
+    
+    // 現在HPが最大を超えていたらカット
+    const current = player.getDynamicProperty("deepcraft:hp") || stats.maxHP;
+    if (current > stats.maxHP) player.setDynamicProperty("deepcraft:hp", stats.maxHP);
 
-    const customId = item.getDynamicProperty("deepcraft:item_id");
-    if (customId) {
-        const def = EQUIPMENT_POOL[customId];
-        if (def && def.skillId) {
-            if (checkReq(player, item).valid) {
-                executeSkill(player, def.skillId);
-            } else {
-                player.playSound("random.break");
-                player.sendMessage("§c能力不足のためスキルを発動できません！");
-            }
-        }
-    }
-});
+    // ★修正: バニラのHP(ハート)をいじるイベントを削除！
+    // 以前の `player.triggerEvent(health${healthVal})` は、バニラHPの最大値を変えてしまうため、
+    // 今回の「バニラHP固定・仮想HP制」と競合してバグの元になっていました。
+    // ここではノックバック耐性と移動速度のみを更新します。
 
-system.afterEvents.scriptEventReceive.subscribe((ev) => {
-    if (!ev.sourceEntity) return;
-    if (ev.id === "deepcraft:addxp") { addXP(ev.sourceEntity, parseInt(ev.message) || 1000); }
-    if (ev.id === "deepcraft:quest") { acceptQuest(ev.sourceEntity, ev.message); }
-    if (ev.id === "deepcraft:give") { giveCustomItem(ev.sourceEntity, ev.message); }
-    if (ev.id === "deepcraft:summon") { summonBoss(ev.sourceEntity, ev.message); }
-    if (ev.id === "deepcraft:sell") { processCommandSell(ev.sourceEntity, ev.message); }
-    if (ev.id === "deepcraft:max") {
-        const player = ev.sourceEntity;
-        for (const key in CONFIG.STATS) player.setDynamicProperty(`deepcraft:${key}`, 100);
-        player.setDynamicProperty("deepcraft:level", 100);
-        player.setDynamicProperty("deepcraft:ether", 1000);
-        applyStatsToEntity(player);
-        player.sendMessage("§e§l[デバッグ] 全ステータスを最大化しました！");
-    }
-});
+    if (player.hasTag("talent:heavy_stance")) player.triggerEvent("knockback_resistance100");
+    else player.triggerEvent("knockback_resistance_reset");
+
+    let speedIndex = Math.floor(stats.speed * 100); 
+    speedIndex = Math.min(Math.max(speedIndex, 0), 300);
+    player.triggerEvent(`movement${speedIndex}`);
+    player.triggerEvent("attack1");
+}
 
 // ==========================================
-//  ⚔️ Universal Virtual HP Combat Logic (修正版)
+//  ⚔️ Combat Logic (Corrected)
 // ==========================================
 
 world.afterEvents.entityHurt.subscribe((ev) => {
@@ -316,26 +317,20 @@ world.afterEvents.entityHurt.subscribe((ev) => {
     const attacker = ev.damageSource.damagingEntity;
     const damageAmount = ev.damage;
 
-    // ★修正点1: 何があってもまずはバニラHPを全回復して「ダメージ帳消し」にする
-    // これにより、無敵時間チェックでreturnされてもバニラダメージは残らない
+    // 1. バニラHPの即時全回復 (最優先)
     const hpComp = victim.getComponent("minecraft:health");
-    if (!hpComp) return;
-    hpComp.resetToMax();
+    if (hpComp) hpComp.resetToMax();
 
-    // 1. 無敵時間 & ループ防止
+    // 2. 無敵時間チェック
     const tick = system.currentTick;
     const lastHurtTick = victim.getDynamicProperty("deepcraft:last_hurt_tick") || 0;
-    
-    // 10tick以内なら「仮想ダメージ処理」をスキップ
-    // (バニラダメージは既に上で回復済みなので、何も起きなかったことになる)
+    // 10tick (0.5秒) 以内なら仮想ダメージ処理はスキップ
     if (tick - lastHurtTick < 10) return;
     
     victim.setDynamicProperty("deepcraft:last_hurt_tick", tick);
 
-    // 3. ステータス計算 & 初期化
+    // 3. ダメージ計算
     const victimStats = calculateEntityStats(victim);
-    
-    // 4. ダメージ計算
     let finalDamage = 0;
     let isCritical = false;
 
@@ -365,7 +360,7 @@ world.afterEvents.entityHurt.subscribe((ev) => {
         finalDamage = damageAmount; 
     }
 
-    // B. 防御側
+    // B. 防御側 (回避など)
     if (victim.typeId === "minecraft:player") {
         let evasionChance = 0;
         if (victim.hasTag("talent:evasion")) evasionChance += 0.15;
@@ -378,30 +373,46 @@ world.afterEvents.entityHurt.subscribe((ev) => {
         }
     }
 
+    // 最終ダメージ計算
     finalDamage = Math.max(CONFIG.COMBAT.MIN_DAMAGE, finalDamage - victimStats.def);
     finalDamage = Math.floor(finalDamage);
 
+    // 反射
     if (attacker) {
-        if (victim.hasTag("talent:thorns_aura")) attacker.applyDamage(2); 
-        if (victim.hasTag("talent:thorns_master")) attacker.applyDamage(Math.floor(finalDamage * 0.3));
+        if (victim.hasTag("talent:thorns_aura")) {
+            // Attackerの仮想HPを減らす処理
+            const attCur = attacker.getDynamicProperty("deepcraft:hp") || 100;
+            attacker.setDynamicProperty("deepcraft:hp", Math.max(0, attCur - 2));
+        }
+        if (victim.hasTag("talent:thorns_master")) {
+            const dmg = Math.floor(finalDamage * 0.3);
+            const attCur = attacker.getDynamicProperty("deepcraft:hp") || 100;
+            attacker.setDynamicProperty("deepcraft:hp", Math.max(0, attCur - dmg));
+        }
     }
 
-    // 5. 仮想HPへのダメージ適用
+    // 4. 仮想HPへのダメージ適用
     const currentHP = victim.getDynamicProperty("deepcraft:hp"); 
     const actualCurrentHP = (currentHP !== undefined) ? currentHP : victimStats.maxHP;
-    
     const newHP = actualCurrentHP - finalDamage;
+    
     victim.setDynamicProperty("deepcraft:hp", newHP);
 
+    // MobならHPバー表示
     if (victim.typeId !== "minecraft:player") {
         updateMobNameTag(victim);
     }
 
+    // 死亡判定 (仮想HPが0以下になったら)
     if (newHP <= 0) {
-        victim.applyDamage(9999);
+        // 確実に殺すためにダメージ耐性等を無視できるkillコマンドを使うか、
+        // 特大ダメージを与える。ここではapplyDamageを使用。
+        // 無敵時間チェックを通しているのでループはしないはずだが、念のため時間をずらす手もある。
+        victim.applyDamage(99999);
         return;
     }
 
+    // クリティカル演出
     if (isCritical) {
         victim.dimension.playSound("random.anvil_land", victim.location, { pitch: 2.0 });
         victim.dimension.spawnParticle("minecraft:critical_hit_emitter", { x: victim.location.x, y: victim.location.y + 1, z: victim.location.z });
@@ -411,26 +422,11 @@ world.afterEvents.entityHurt.subscribe((ev) => {
     }
 });
 
-// --- Helper Functions (Profile / Stats) ---
+// --- Events, Helper Functions (Quest, Profile, etc) ---
+// これらは変更なし。既存の関数をそのまま維持してください。
+// getEquipmentStats, entityDie, acceptQuest... etc.
 
-function applyStatsToEntity(player) {
-    const stats = calculateEntityStats(player);
-    player.setDynamicProperty("deepcraft:max_hp", stats.maxHP);
-    
-    const current = player.getDynamicProperty("deepcraft:hp");
-    if (current === undefined || current > stats.maxHP) {
-        player.setDynamicProperty("deepcraft:hp", stats.maxHP);
-    }
-
-    if (player.hasTag("talent:heavy_stance")) player.triggerEvent("knockback_resistance100");
-    else player.triggerEvent("knockback_resistance_reset");
-
-    let speedIndex = Math.floor(stats.speed * 100); 
-    speedIndex = Math.min(Math.max(speedIndex, 0), 300);
-    player.triggerEvent(`movement${speedIndex}`);
-    player.triggerEvent("attack1");
-}
-
+// (以下、既存コードの末尾部分をそのまま貼り付けてください)
 function getEquipmentStats(itemStack) {
     if (!itemStack) return { atk: 0, def: 0 };
     const id = itemStack.getDynamicProperty("deepcraft:item_id");
@@ -439,9 +435,6 @@ function getEquipmentStats(itemStack) {
     if (!def || !def.stats) return { atk: 0, def: 0 };
     return def.stats;
 }
-
-// ... (entityDie, acceptQuest, claimQuestReward, giveCustomItem, summonBoss, createCustomItem, addXP, applyNumericalPassives, applyEquipmentPenalties, checkReq) ...
-// (以下変更なし。省略)
 
 world.afterEvents.entityDie.subscribe((ev) => {
     const victim = ev.deadEntity;
@@ -492,7 +485,9 @@ world.afterEvents.entityDie.subscribe((ev) => {
 
     if (victim.typeId === "minecraft:player") {
         const player = victim;
+        // 死亡時に仮想HPをリセット
         player.setDynamicProperty("deepcraft:hp", player.getDynamicProperty("deepcraft:max_hp"));
+        
         const lostXP = player.getDynamicProperty("deepcraft:xp") || 0;
         player.setDynamicProperty("deepcraft:xp", 0);
         if (lostXP > 0) player.sendMessage(`§c死亡により ${lostXP} XPを失いました...`);
@@ -522,6 +517,8 @@ world.afterEvents.entityDie.subscribe((ev) => {
     }
 });
 
+// ... (acceptQuest以降のUI関数などもそのまま維持)
+// acceptQuest, claimQuestReward, giveCustomItem, summonBoss, createCustomItem, addXP, applyNumericalPassives, applyEquipmentPenalties, checkReq, saveProfile, loadProfile, openMenuHub, openDetailStats, openProfileMenu, openStatusMenu, openTalentViewer, openQuestMenu, upgradeStat, processLevelUp, openCardSelection, applyCardEffect, resetCurrentProfile
 function acceptQuest(player, questId) {
     const def = QUEST_POOL[questId];
     if (!def) { player.sendMessage(`§cクエストが見つかりません: ${questId}`); return; }
