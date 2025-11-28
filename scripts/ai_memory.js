@@ -24,6 +24,13 @@
 4.  **[BANNED] Player Scaling**:
     * **理由**: Hitbox Desync（判定ズレ）の主原因となるため、`player.json` からスケール関連の定義は全削除済み。
 
+5.  **[BANNED] `manifest.json` Direct Editing**:
+    * **理由**: Gemini Code Assistはプロジェクトファイル（`manifest.json`など）を直接編集できません。Script APIのバージョンアップなどは手動で行う必要があります。
+
+6.  **[BANNED] `beforeEvents.chatSend` for Command Aliases**:
+    * **理由**: `manifest.json` で指定されている `@minecraft/server` v1.18.0 では、`chatSend` イベントのキャンセル (`ev.cancel`) ができません。
+    * **解決策**: カスタムコマンドはすべて `/scriptevent deepcraft:<command>` 形式で実装されています。`!` プレフィックスによるエイリアス機能は実装不可能です。
+
 ## 3. 🛡️ Critical Implementation Rules (基幹システムの正解ロジック)
 
 ### A. HP System (Virtual HP)

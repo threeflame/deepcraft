@@ -26,23 +26,15 @@ export function handlePlayerSpawn(event) {
         player.sendMessage("§c§l[警告] 戦闘中に切断したため、ペナルティとして死亡します...");
         player.playSound("random.anvil_land");
 
-        system.runTimeout(() => {
+        runTimeout(() => {
             if (player.isValid()) {
                 player.runCommand("kill @s");
                 player.sendMessage("§c§l-> 処刑されました。(Combat Log Penalty)");
             }
-        }, 60); // 3秒後に実行
+        }, 10);
 
         return;
     }
-
-    // 通常リスポーン
-    const hp = player.getComponent("minecraft:health");
-    if (hp) hp.resetToMax();
-
-    system.runTimeout(() => {
-        if (player.isValid()) player.triggerEvent("scale_reset");
-    }, 2);
 }
 
 function initializePlayer(player) {
@@ -74,11 +66,14 @@ export function applyStatsToEntity(player) {
         player.setDynamicProperty("deepcraft:hp", stats.maxHP);
     }
 
+    // ノックバック耐性のイベントはそのまま使用
     player.triggerEvent(player.hasTag("talent:heavy_stance") ? "knockback_resistance100" : "knockback_resistance_reset");
 
-    let speedIndex = Math.min(Math.max(Math.floor(stats.speed * 100), 0), 300);
-    player.triggerEvent(`movement${speedIndex}`);
-    player.triggerEvent("attack1");
+    // [修正] イベントトリガーではなく、movementコンポーネントを直接設定する
+    const movement = player.getComponent("minecraft:movement");
+    if (movement) {
+        movement.setCurrentValue(movement.defaultValue * stats.speed);
+    }
 }
 
 export function applyNumericalPassives(player) {

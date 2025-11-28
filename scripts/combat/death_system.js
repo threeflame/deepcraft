@@ -7,6 +7,7 @@ import { EQUIPMENT_POOL } from "../data/equipment.js";
 import { addXP } from "../player/player_manager.js";
 import { createCustomItem } from "../systems/item_handler.js";
 
+import { EquipmentSlot } from "@minecraft/server";
 export const COMBAT_LOG_CACHE = new Map();
 
 export function handleEntityDie(event) {
@@ -51,7 +52,8 @@ function handlePlayerKill(player, victim) {
                     player.sendMessage(`§eボス撃破！ +${drop.amount} XP`);
                 }
                 if (drop.type === "item") {
-                    const item = createCustomItem(drop.id);
+                    // ★変更: ドロップ定義に sellable があれば、販売可能なアイテムとして生成
+                    const item = createCustomItem(drop.id, drop.sellable || false);
                     player.dimension.spawnItem(item, victim.location);
                     player.sendMessage(`§6§lレアドロップ！ §r獲得: ${item.nameTag}`);
                 }
@@ -69,9 +71,13 @@ function handlePlayerDeath(player) {
     player.setDynamicProperty("deepcraft:xp", 0);
     if (lostXP > 0) player.sendMessage(`§c死亡により ${lostXP} XPを失いました...`);
 
+    // [修正] 装備品とインベントリの両方からドロップ処理を行う
+    // [修正] -> 通常死亡時はインベントリのみを対象とする
     const inventory = player.getComponent("inventory").container;
     const droppedItems = [];
-    for (let i = 9; i < inventory.size; i++) { // ホットバー(0-8)を除く
+
+    // インベントリのドロップ判定 (ホットバーを除く)
+    for (let i = 9; i < inventory.size; i++) {
         const item = inventory.getItem(i);
         if (item && Math.random() < CONFIG.DEATH_ITEM_DROP_RATE) {
             droppedItems.push(item.clone());
@@ -79,13 +85,16 @@ function handlePlayerDeath(player) {
         }
     }
 
+    // Soulを生成し、ドロップアイテムを格納する
     if (droppedItems.length > 0) {
-        const soul = player.dimension.spawnEntity("minecraft:chest_minecart", { x: player.location.x, y: player.location.y + 1.0, z: player.location.z });
-        soul.nameTag = `§b${player.name}の魂`;
-        soul.setDynamicProperty("deepcraft:owner_id", player.id);
-        const soulContainer = soul.getComponent("inventory").container;
-        droppedItems.forEach(item => soulContainer.addItem(item));
-        player.sendMessage(`§b一部のアイテムを魂として座標 [${Math.floor(soul.location.x)}, ${Math.floor(soul.location.y)}, ${Math.floor(soul.location.z)}] に落としました。`);
+        try {
+            const soul = player.dimension.spawnEntity("minecraft:chest_minecart", { x: player.location.x, y: player.location.y + 1.0, z: player.location.z });
+            soul.nameTag = `§b${player.name}の魂`;
+            soul.setDynamicProperty("deepcraft:owner_id", player.id);
+            const soulContainer = soul.getComponent("inventory").container;
+            droppedItems.forEach(item => soulContainer.addItem(item));
+            player.sendMessage(`§b一部のアイテムを魂として座標 [${Math.floor(soul.location.x)}, ${Math.floor(soul.location.y)}, ${Math.floor(soul.location.z)}] に落としました。`);
+        } catch (e) { console.warn(`Soul Spawn Error: ${e}`); }
     }
 }
 

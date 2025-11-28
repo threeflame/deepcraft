@@ -48,6 +48,11 @@ export class MarketDataManager {
     }
 
     static addListing(player, itemStack, price) {
+        // ★追加: アイテムが販売可能かチェック
+        if (!itemStack.getDynamicProperty("deepcraft:sellable")) {
+            return { success: false, message: "§cそのアイテムはマーケットで販売できません。" };
+        }
+
         const listings = this.getAllListings();
         const playerListings = listings.filter(l => l.ownerId === player.id);
         

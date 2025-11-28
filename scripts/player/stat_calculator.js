@@ -87,7 +87,7 @@ function calculatePlayerStats(player, stats, addDetail) {
     addDetail('regen', '意志(Will)', willRegen);
 
     // HP
-    let hp = 18 + (fort * 2);
+    let hp = 20 + (fort * 2);
     if (player.hasTag("talent:vitality_1")) hp += 4;
     if (player.hasTag("talent:vitality_2")) hp += 10;
     if (player.hasTag("talent:glass_cannon")) hp = Math.floor(hp * 0.5);

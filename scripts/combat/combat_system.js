@@ -1,9 +1,8 @@
-// BP/scripts/combat/combat_system.js
 import { EquipmentSlot } from "@minecraft/server";
 import { CONFIG } from "../config.js";
 import { calculateEntityStats } from "../player/stat_calculator.js";
 import { checkReq } from "../player/player_manager.js";
-import { updateMobNameTag } from "../systems/game_loop.js";
+import { updateMobNameTag } from "../systems/game_loop.js"; // This will be handled by game_loop.js
 
 export function handleEntityHurt(event) {
     const { hurtEntity: victim, damageSource, damage } = event;
@@ -48,12 +47,17 @@ export function handleEntityHurt(event) {
             const max = attacker.getDynamicProperty("deepcraft:max_hp") || 100;
             attacker.setDynamicProperty("deepcraft:hp", Math.min(cur + 2, max));
         }
+        // [追加] 毒の一撃の効果
+        if (attacker.hasTag("talent:poison_strike")) {
+            victim.addEffect("poison", 100, { amplifier: 0 }); // 5秒 = 100 ticks, 毒(I) = amplifier 0
+        }
+
     } else {
         finalDamage = damage; // Mobや環境からのダメージはバニラ値をベースにする
     }
 
     // B. 防御側
-    if (victim.typeId === "minecraft:player" && Math.random() < victimStats.evasion) {
+    if (victim.typeId === "minecraft:player" && Math.random() < victimStats.evasion) { 
         victim.playSound("random.orb");
         victim.sendMessage("§a回避！");
         return;
@@ -73,8 +77,11 @@ export function handleEntityHurt(event) {
 
     // 3. 死亡判定
     if (newHP <= 0) {
-        victim.runCommand("kill @s");
-        return;
+        // [修正] entityHurtの再帰ループを防ぐため、直接キルせずタグを付けてループに処理を移譲する
+        victim.addTag("deepcraft:dead"); 
+        // 攻撃者情報を一時的に保存する
+        if (attacker) victim.setDynamicProperty("deepcraft:last_attacker_id", attacker.id);
+        return; // キル処理をスケジュールしたら、このイベントの処理は終了
     }
 
     // 4. 反射ダメージ

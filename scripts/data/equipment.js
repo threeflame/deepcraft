@@ -18,6 +18,13 @@ export const EQUIPMENT_POOL = {
         stats: { atk: 4 }, // ★追加
         req: {} 
     },
+    "goblin_ear": {
+        name: "§aゴブリンの耳",
+        lore: ["§7マーケットで売れるかもしれない。"],
+        baseItem: "minecraft:rabbit_foot",
+        stats: {},
+        req: {}
+    },
 
     // ==========================================
     //  Tier 1: Common

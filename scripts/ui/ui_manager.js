@@ -26,6 +26,10 @@ export function openMenuHub(player) {
     form.button(15, `§6§lマーケット (${gold} G)`, ["§r§eプレイヤー間取引所"], "minecraft:gold_ingot");
     form.button(20, "§6§lクエストログ", ["§r§7進行中のクエスト"], "minecraft:writable_book");
     form.button(26, "§c§lデバッグ: リセット", ["§r§cプロファイルをリセット"], "minecraft:barrier");
+    
+    // [修正] 欠損していたデバッグ用ボタンを追加
+    form.button(24, "§e§lデバッグ: +1000 G", ["§r資金を追加"], "minecraft:sunflower");
+    form.button(25, "§e§lデバッグ: +XP", ["§r+10000XP"], "minecraft:emerald");
 
     form.show(player).then(res => {
         if (res.canceled) return;
@@ -36,7 +40,17 @@ export function openMenuHub(player) {
             13: () => openDetailStats(player),
             15: () => openMarketMenu(player),
             20: () => openQuestMenu(player),
-            26: () => { resetCurrentProfile(player); openMenuHub(player); }
+            26: () => { resetCurrentProfile(player); openMenuHub(player); },
+            // [修正] 追加したボタンの処理を定義
+            24: () => {
+                const current = player.getDynamicProperty("deepcraft:gold") || 0;
+                player.setDynamicProperty("deepcraft:gold", current + 1000);
+                player.playSound("random.orb");
+                openMenuHub(player);
+            },
+            25: () => {
+                addXP(player, 10000); openMenuHub(player);
+            }
         };
         actions[res.selection]?.();
     });
@@ -99,11 +113,18 @@ function openStatusMenu(player) {
     const remaining = CONFIG.STAT_POINTS_PER_LEVEL - invested;
     form.title(`§lステータス | LvUpまで: ${remaining}pt`);
 
+    // [修正] 欠損していたステータス定義をすべて追加
     const layout = [
         { key: "strength", slot: 1, icon: "minecraft:netherite_sword" }, { key: "fortitude", slot: 3, icon: "minecraft:golden_apple" },
         { key: "agility", slot: 5, icon: "minecraft:sugar" }, { key: "defense", slot: 7, icon: "minecraft:shield" },
         { key: "intelligence", slot: 11, icon: "minecraft:enchanted_book" }, { key: "willpower", slot: 13, icon: "minecraft:beacon" },
+        { key: "charisma", slot: 15, icon: "minecraft:diamond" },
+        { key: "flame", slot: 28, icon: "minecraft:fire_charge" }, { key: "frost", slot: 30, icon: "minecraft:snowball" },
+        { key: "gale", slot: 32, icon: "minecraft:elytra" }, { key: "thunder", slot: 34, icon: "minecraft:lightning_rod" },
+        { key: "heavy", slot: 47, icon: "minecraft:anvil" }, { key: "medium", slot: 49, icon: "minecraft:iron_chestplate" },
+        { key: "light", slot: 51, icon: "minecraft:bow" }
     ];
+
     const slotToKeyMap = {};
     layout.forEach(item => {
         const val = player.getDynamicProperty(`deepcraft:${item.key}`) || 0;

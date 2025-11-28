@@ -1,14 +1,19 @@
 // BP/scripts/systems/command_handler.js
+import { system } from "@minecraft/server";
 import { openMarketMenu, processCommandSell } from "../data/market.js";
 import { openMenuHub } from "../ui/ui_manager.js";
 import { addXP, resetCurrentProfile } from "../player/player_manager.js";
 import { giveCustomItem, summonBoss } from "./item_handler.js";
 import { acceptQuest } from "../player/quest_manager.js";
-import { CONFIG } from "../config.js";
 
-export function handleChatCommand(player, message) {
-    const args = message.substring(1).split(" ");
-    const command = args[0].toLowerCase();
+/**
+ * scripteventから呼び出されるコマンド処理
+ * @param {import("@minecraft/server").ScriptEventCommandMessageEvent} event
+ */
+export function handleScriptEventCommand(event) {
+    const { sourceEntity: player, id, message } = event;
+    const command = id.replace("deepcraft:", "");
+    const args = message.split(" ");
 
     switch (command) {
         // --- 一般プレイヤー用 ---
@@ -20,30 +25,15 @@ export function handleChatCommand(player, message) {
             openMarketMenu(player);
             break;
 
-        case "sell":
-            if (!args[1]) {
-                player.sendMessage("§c使用法: !sell <価格>");
-                return;
-            }
-            processCommandSell(player, args[1]);
-            break;
-
         case "party":
             player.sendMessage("§7パーティ機能は準備中です。");
             break;
 
-        case "help":
-            player.sendMessage("§e--- DeepCraft Commands ---");
-            player.sendMessage("§f!menu  : メニューを開く");
-            player.sendMessage("§f!market: マーケットを開く");
-            player.sendMessage("§f!sell <価格>: 手持ちアイテムを出品");
-            player.sendMessage("§f!help  : コマンド一覧");
-            if (player.hasTag("admin")) {
-                player.sendMessage("§c!admin : 管理者メニュー (xp, give, summon, max, reset, quest)");
-            }
+        // --- scriptevent経由のコマンド ---
+        case "sell":
+            processCommandSell(player, message);
             break;
 
-        // --- 管理者用 (adminタグ必須) ---
         case "admin":
             if (!player.hasTag("admin")) {
                 player.sendMessage("§c権限がありません。(adminタグが必要です)");
@@ -53,36 +43,40 @@ export function handleChatCommand(player, message) {
             break;
 
         default:
-            player.sendMessage(`§c不明なコマンドです: ${command}`);
+            // scripteventで不明なコマンドが来た場合は何もしない（チャット荒れ防止）
             break;
     }
 }
 
 function handleAdminCommand(player, args) {
-    const sub = args[1];
-    const val = args[2];
+    const sub = args[0];
+    const val1 = args[1];
+    const val2 = args[2];
 
     switch (sub) {
         case "xp":
-            addXP(player, parseInt(val) || 1000);
+            addXP(player, parseInt(val1) || 1000);
             break;
         case "give":
-            if (val) giveCustomItem(player, val);
-            else player.sendMessage("§cIDを指定してください");
+            if (val1) {
+                const isSellable = (val2 === "sellable");
+                giveCustomItem(player, val1, isSellable);
+            }
+            else player.sendMessage("§c使用法: /scriptevent deepcraft:admin give <itemId> [sellable]");
             break;
         case "summon":
-            if (val) summonBoss(player, val);
+            if (val1) summonBoss(player, val1);
             else player.sendMessage("§cBossIDを指定してください");
             break;
         case "quest":
-            if (val) acceptQuest(player, val);
+            if (val1) acceptQuest(player, val1);
             else player.sendMessage("§cQuestIDを指定してください");
             break;
         case "reset":
             resetCurrentProfile(player);
             break;
         default:
-            player.sendMessage("§c使用法: !admin <xp/give/summon/quest/reset> [値]");
+            player.sendMessage("§cAdmin: /scriptevent deepcraft:admin <xp|give|summon|quest|reset> [value]");
             break;
     }
 }

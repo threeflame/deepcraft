@@ -1,5 +1,5 @@
 // BP/scripts/systems/game_loop.js
-import { world, system, EquipmentSlot } from "@minecraft/server";
+import { world, system, EquipmentSlot, Entity } from "@minecraft/server";
 import { CONFIG } from "../config.js";
 import { COMBAT_LOG_CACHE } from "../combat/death_system.js";
 import { applyEquipmentPenalties, applyNumericalPassives, applyStatsToEntity, getXpCostForLevel } from "../player/player_manager.js";
@@ -10,28 +10,53 @@ export function initializeGameLoop() {
         try {
             // 1. Player Loop
             world.getAllPlayers().forEach(player => {
-                try {
-                    if (!player.isValid()) return;
-                    playerLoop(player);
-                } catch (e) { /* 個別プレイヤーのエラーは無視 */ }
+                if (!player.isValid()) return;
+                if (player.hasTag("deepcraft:dead")) {
+                    processDeath(player);
+                    return;
+                }
+                playerLoop(player);
             });
 
-            // 2. Boss Loop
-            try {
+            // 2. Mob Loop (カスタムMob全般を処理)
+            try { 
                 world.getDimension("overworld").getEntities({ tags: ["deepcraft:boss"] }).forEach(boss => {
+                    if (!boss.isValid()) return;
+                    if (boss.hasTag("deepcraft:dead")) {
+                        processDeath(boss);
+                        return;
+                    }
                     updateMobNameTag(boss);
                     processBossSkillAI(boss);
                 });
-            } catch (e) { /* ボスループのエラーは無視 */ }
+            } catch (e) { /* Mobループのエラーは無視 */ }
 
         } catch (e) { console.warn("System Loop Error: " + e); }
     }, 10); // 0.5秒ごとに実行
 }
 
+/**
+ * 死亡タグが付いたエンティティのキル処理を実行する
+ * @param {Entity} entity 
+ */
+function processDeath(entity) {
+    entity.removeTag("deepcraft:dead"); // 無限ループ防止
+
+    const attackerId = entity.getDynamicProperty("deepcraft:last_attacker_id");
+    if (attackerId) {
+        const attacker = world.getEntity(attackerId);
+        if (attacker && attacker.isValid()) {
+            entity.applyDamage(9999, { damagingEntity: attacker, cause: 'entityAttack' });
+        }
+        entity.setDynamicProperty("deepcraft:last_attacker_id", undefined);
+    } else {
+        entity.applyDamage(9999, { cause: 'override' });
+    }
+}
+
 function playerLoop(player) {
-    // レベル、XP、Ether計算
-    let level = player.getDynamicProperty("deepcraft:level");
-    if (typeof level !== 'number' || level < 1) { level = 1; player.setDynamicProperty("deepcraft:level", 1); }
+    const level = player.getDynamicProperty("deepcraft:level") || 1;
+
     let xp = player.getDynamicProperty("deepcraft:xp");
     if (typeof xp !== 'number' || xp < 0) { xp = 0; player.setDynamicProperty("deepcraft:xp", 0); }
 
@@ -105,7 +130,7 @@ function playerLoop(player) {
     applyStatsToEntity(player);
 }
 
-export function updateMobNameTag(entity) {
+export function updateMobNameTag(entity) { // ★ exportされていることを確認
     if (!entity.isValid()) return;
     const current = entity.getDynamicProperty("deepcraft:hp");
     const max = entity.getDynamicProperty("deepcraft:max_hp");

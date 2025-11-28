@@ -4,8 +4,8 @@ import { world, system } from "@minecraft/server";
 // --- Module Imports ---
 import { initializeGameLoop } from "./systems/game_loop.js";
 import { handlePlayerSpawn } from "./player/player_manager.js";
-import { handleChatCommand } from "./systems/command_handler.js";
 import { handleItemUse } from "./systems/item_handler.js";
+import { handleScriptEventCommand } from "./systems/command_handler.js";
 import { handleEntityHurt } from "./combat/combat_system.js";
 import { handleEntityDie, handlePlayerLeave } from "./combat/death_system.js";
 
@@ -21,16 +21,6 @@ world.afterEvents.playerSpawn.subscribe((ev) => {
     try {
         handlePlayerSpawn(ev);
     } catch (e) { console.warn(`PlayerSpawn Error: ${e} ${e.stack}`); }
-});
-
-// プレイヤーがチャットを送信した時
-world.beforeEvents.chatSend.subscribe((ev) => {
-    try {
-        if (ev.message.startsWith("!")) {
-            ev.cancel = true;
-            system.run(() => handleChatCommand(ev.sender, ev.message));
-        }
-    } catch (e) { console.warn(`ChatCommand Error: ${e} ${e.stack}`); }
 });
 
 // プレイヤーがアイテムを使用した時
@@ -59,4 +49,11 @@ world.afterEvents.playerLeave.subscribe((ev) => {
     try {
         handlePlayerLeave(ev);
     } catch (e) { console.warn(`PlayerLeave Error: ${e} ${e.stack}`); }
+});
+
+// ScriptEventを受け取った時
+system.afterEvents.scriptEventReceive.subscribe((ev) => {
+    if (ev.id.startsWith("deepcraft:")) {
+        try { handleScriptEventCommand(ev); } catch (e) { console.warn(`ScriptEvent Error: ${e} ${e.stack}`); }
+    }
 });

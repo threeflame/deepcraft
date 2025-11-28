@@ -27,6 +27,25 @@ export const MOB_POOL = {
         ]
     },
 
+    "goblin": {
+        name: "§aGoblin",
+        type: "minecraft:zombie", // 日光で燃える一般的なMob
+        health: 30,               // 体力は低め
+        scale: 0.9,               // 少し小柄に
+        speed: 0.35,              // 少し素早く
+        equipment: {
+            mainhand: "trainee_sword" // 一番弱い剣を装備
+        },
+        drops: [
+            { type: "xp", amount: 50 },
+            { type: "item", id: "goblin_ear", chance: 0.5, sellable: true }, // 50%の確率で売れる耳をドロップ
+            { type: "item", id: "trainee_sword", chance: 0.05 } // 5%の確率で剣をドロップ
+        ],
+        skills: [
+            // 雑魚なのでスキルなし
+        ]
+    },
+
     "bandit_leader": {
         name: "§c§lBandit Leader",
         type: "minecraft:husk", 
