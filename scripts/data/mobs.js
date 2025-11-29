@@ -32,6 +32,8 @@ export const MOB_POOL = {
         type: "minecraft:zombie", // 日光で燃える一般的なMob
         health: 30,               // 体力は低め
         scale: 0.9,               // 少し小柄に
+        atk: 5,                   // 攻撃力
+        def: 2,                   // 防御力
         speed: 0.35,              // 少し素早く
         equipment: {
             mainhand: "trainee_sword" // 一番弱い剣を装備

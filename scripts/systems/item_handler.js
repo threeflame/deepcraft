@@ -75,13 +75,8 @@ export function summonBoss(player, bossId) {
         boss.setDynamicProperty("deepcraft:boss_id", bossId);
         boss.nameTag = def.name;
 
-        const health = boss.getComponent("minecraft:health");
-        if (health) {
-            // ★変更: 耐性ではなく、ヘルスブーストで最大HPを大幅に引き上げて不死身にする
-            boss.addEffect("health_boost", 20000000, { amplifier: 255, showParticles: false });
-            // 現在のHPを新しい最大値に設定
-            health.resetToMaxValue();
-        }
+        // 仕様書(v2.0)に基づき、スクリプトによる生存保証（HP回復や耐性付与）は一切行わない。
+        // Mobの生存は、ユーザーが設置するコマンドブロック等による再生エフェクトに依存する。
 
         const equip = boss.getComponent("equippable");
         if (equip && def.equipment) {

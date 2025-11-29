@@ -26,7 +26,6 @@ export function initializeGameLoop() {
                         processDeath(boss);
                         return;
                     }
-                    updateMobNameTag(boss);
                     processBossSkillAI(boss);
                 });
             } catch (e) { /* Mobループのエラーは無視 */ }
@@ -130,7 +129,7 @@ function playerLoop(player) {
     applyStatsToEntity(player);
 }
 
-function updateMobNameTag(entity) {
+export function updateMobNameTag(entity) {
     if (!entity.isValid()) return;
     const current = entity.getDynamicProperty("deepcraft:hp");
     const max = entity.getDynamicProperty("deepcraft:max_hp");

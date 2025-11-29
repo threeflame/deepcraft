@@ -2,6 +2,7 @@ import { EquipmentSlot } from "@minecraft/server";
 import { CONFIG } from "../config.js";
 import { calculateEntityStats } from "../player/stat_calculator.js";
 import { checkReq } from "../player/player_manager.js";
+import { updateMobNameTag } from "../systems/game_loop.js";
 
 export function handleEntityHurt(event) {
     const { hurtEntity: victim, damageSource, damage } = event;
@@ -70,6 +71,9 @@ export function handleEntityHurt(event) {
     const currentHP = victim.getDynamicProperty("deepcraft:hp") ?? victimStats.maxHP;
     const newHP = currentHP - finalDamage;
     victim.setDynamicProperty("deepcraft:hp", newHP);
+
+    // ★追加: ダメージを受けた瞬間にHPバーを更新する
+    if (victim.typeId !== "minecraft:player") updateMobNameTag(victim);
 
     // 3. 死亡判定
     if (newHP <= 0) {
