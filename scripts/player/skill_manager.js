@@ -29,7 +29,7 @@ export function executeSkill(player, skillId) {
         }
         player.addTag(cdTag);
         system.runTimeout(() => {
-            if (player.isValid()) {
+            if (player.isValid) {
                 player.removeTag(cdTag);
                 player.playSound("random.orb");
                 player.sendMessage(`§aスキル準備完了: ${skill.name}`);

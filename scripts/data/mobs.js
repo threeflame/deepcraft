@@ -1,53 +1,38 @@
 // BP/scripts/data/mobs.js
 
 export const MOB_POOL = {
+    // --- 一般Mob & ダミー ---
     "training_dummy": {
         name: "§e§lTraining Dummy",
-        type: "minecraft:husk",      // 日光で燃えないハスクを使用
-        health: 1000,                // 検証用に超高体力に設定
+        type: "minecraft:husk",      
+        health: 1000,                
         scale: 1.0,
         isDummy: true,
-        equipment: {
-            // 防具なし（素のダメージ検証用）
-        },
+        equipment: {},
         drops: [
-            { type: "xp", amount: 10 } // 倒した時のご褒美（微量）
+            { type: "xp", amount: 10 } 
         ],
-        skills: [
-            {
-                id: "damage_log",
-                chance: 1.0, // 被ダメージ時に100%発動（カウンター判定を利用）
-                action: (entity) => {
-                    // ここにダメージログを出せれば理想的ですが、
-                    // 現在のシステムでは被弾時にチャットログを出す機能は組み込まれていないため、
-                    // 攻撃されたときにパーティクルを出して「ヒット判定」を可視化します。
-                    entity.dimension.spawnParticle("minecraft:villager_angry", entity.location);
-                }
-            }
-        ]
+        skills: []
     },
 
     "goblin": {
         name: "§aGoblin",
-        type: "minecraft:zombie", // 日光で燃える一般的なMob
-        health: 30,               // 体力は低め
-        scale: 0.9,               // 少し小柄に
-        atk: 5,                   // 攻撃力
-        def: 2,                   // 防御力
-        speed: 0.35,              // 少し素早く
+        type: "minecraft:husk", 
+        health: 30,            
+        scale: 0.8,     
+        speed: 0.25,
         equipment: {
-            mainhand: "trainee_sword" // 一番弱い剣を装備
+            mainhand: "trainee_sword" 
         },
         drops: [
             { type: "xp", amount: 50 },
-            { type: "item", id: "goblin_ear", chance: 0.5, sellable: true }, // 50%の確率で売れる耳をドロップ
-            { type: "item", id: "trainee_sword", chance: 0.05 } // 5%の確率で剣をドロップ
+            { type: "item", id: "goblin_ear", chance: 0.5, sellable: true, amount: 1 },
+            { type: "item", id: "trainee_sword", chance: 0.05 } 
         ],
-        skills: [
-            // 雑魚なのでスキルなし
-        ]
+        skills: []
     },
 
+    // --- ボス ---
     "bandit_leader": {
         name: "§c§lBandit Leader",
         type: "minecraft:husk", 
@@ -70,7 +55,7 @@ export const MOB_POOL = {
             {
                 id: "summon_minions",
                 chance: 0.05, 
-                msg: "§c野郎ども、やっちまえ！",
+                msg: "§cMinions, aid me!",
                 action: (entity) => {
                     entity.dimension.spawnEntity("minecraft:zombie", entity.location);
                     entity.dimension.spawnEntity("minecraft:zombie", entity.location);
@@ -102,7 +87,7 @@ export const MOB_POOL = {
             {
                 id: "charge",
                 chance: 0.08,
-                msg: "§4§l突撃！！",
+                msg: "§4§lCHARGE!",
                 action: (entity) => {
                     const view = entity.getViewDirection();
                     entity.applyKnockback(view.x, view.z, 5.0, 0.0); 
@@ -113,7 +98,7 @@ export const MOB_POOL = {
             {
                 id: "ground_smash",
                 chance: 0.05,
-                msg: "§c粉砕！",
+                msg: "§cCRUSH!",
                 action: (entity) => {
                     entity.dimension.spawnParticle("minecraft:large_explosion", entity.location);
                     entity.dimension.playSound("random.explode", entity.location);
@@ -148,7 +133,7 @@ export const MOB_POOL = {
             {
                 id: "fireball_barrage",
                 chance: 0.1, 
-                msg: "§5灰となれ...",
+                msg: "§5Burn to ash...",
                 action: (entity) => {
                     for(let i=0; i<3; i++) {
                         const fb = entity.dimension.spawnEntity("minecraft:small_fireball", {
@@ -162,7 +147,7 @@ export const MOB_POOL = {
             {
                 id: "ice_nova",
                 chance: 0.05,
-                msg: "§b凍り付け！",
+                msg: "§bFreeze!",
                 action: (entity) => {
                     entity.dimension.spawnParticle("minecraft:snowflake_particle", entity.location);
                     const players = entity.dimension.getPlayers({ location: entity.location, maxDistance: 8 });

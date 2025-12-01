@@ -1,8 +1,10 @@
 // BP/scripts/player/player_manager.js
-import { world, system, EquipmentSlot } from "@minecraft/server";
+import { world, system, EquipmentSlot, EntityDamageCause } from "@minecraft/server";
 import { CONFIG } from "../config.js";
 import { calculateEntityStats } from "./stat_calculator.js";
 import { EQUIPMENT_POOL } from "../data/equipment.js";
+import { decodeLoreData } from "../systems/lore_manager.js";
+import { getItemId } from "../systems/lore_manager.js";
 
 export function handlePlayerSpawn(event) {
     const player = event.player;
@@ -11,30 +13,43 @@ export function handlePlayerSpawn(event) {
         initializePlayer(player);
     }
 
-    // コンバットログ処刑
     const logKey = `combat_log:${player.id}`;
     if (world.getDynamicProperty(logKey)) {
         world.setDynamicProperty(logKey, undefined);
         player.setDynamicProperty("deepcraft:combat_timer", 0);
 
         const inventory = player.getComponent("inventory").container;
-        for (let i = 0; i < inventory.size; i++) inventory.setItem(i, undefined);
+        if (inventory) {
+            for (let i = 0; i < inventory.size; i++) inventory.setItem(i, undefined);
+        }
 
         const equip = player.getComponent("equippable");
-        Object.values(EquipmentSlot).forEach(slot => equip.setEquipment(slot, undefined));
+        if (equip) {
+            [EquipmentSlot.Head, EquipmentSlot.Chest, EquipmentSlot.Legs, EquipmentSlot.Feet, EquipmentSlot.Mainhand, EquipmentSlot.Offhand].forEach(slotId => {
+                const slot = equip.getEquipmentSlot(slotId);
+                if (slot) slot.setItem(undefined);
+            });
+        }
 
         player.sendMessage("§c§l[警告] 戦闘中に切断したため、ペナルティとして死亡します...");
         player.playSound("random.anvil_land");
 
-        runTimeout(() => {
-            if (player.isValid()) {
-                player.runCommand("kill @s");
+        system.runTimeout(() => {
+            // ★修正: isValid プロパティ参照
+            if (player.isValid) {
+                player.applyDamage(99999, { cause: EntityDamageCause.suicide });
                 player.sendMessage("§c§l-> 処刑されました。(Combat Log Penalty)");
             }
-        }, 10);
+        }, 60);
 
         return;
     }
+
+    applyStatsToEntity(player);
+    player.setDynamicProperty("deepcraft:hp", player.getDynamicProperty("deepcraft:max_hp"));
+    player.setDynamicProperty("deepcraft:combat_timer", 0);
+
+    // ★削除: scale_reset のブロックを削除しました
 }
 
 function initializePlayer(player) {
@@ -66,12 +81,9 @@ export function applyStatsToEntity(player) {
         player.setDynamicProperty("deepcraft:hp", stats.maxHP);
     }
 
-    // ノックバック耐性のイベントはそのまま使用
-    player.triggerEvent(player.hasTag("talent:heavy_stance") ? "knockback_resistance100" : "knockback_resistance_reset");
-
-    // [修正] イベントトリガーではなく、movementコンポーネントを直接設定する
     const movement = player.getComponent("minecraft:movement");
     if (movement) {
+        const BASE_SPEED = 0.1;
         movement.setCurrentValue(movement.defaultValue * stats.speed);
     }
 }
@@ -81,7 +93,7 @@ export function applyNumericalPassives(player) {
     if (player.hasTag("talent:immortal")) regenAmount += 1;
 
     const headBlock = player.dimension.getBlock(player.getHeadLocation());
-    if (player.hasTag("talent:aquatic_life") && headBlock?.isWater) {
+    if (player.hasTag("talent:aquatic_life") && headBlock?.typeId.includes("water")) {
         regenAmount += 1;
     }
 
@@ -92,22 +104,29 @@ export function applyNumericalPassives(player) {
     }
 
     if (player.hasTag("talent:full_belly")) {
-        player.runCommand("effect @s saturation 1 0 true");
+        player.addEffect("saturation", 20, { amplifier: 0, showParticles: false });
     }
 }
 
 export function applyEquipmentPenalties(player) {
     const equipment = player.getComponent("equippable");
     let armorPenalty = false;
-    [EquipmentSlot.Head, EquipmentSlot.Chest, EquipmentSlot.Legs, EquipmentSlot.Feet].forEach(slot => {
-        if (!checkReq(player, equipment.getEquipment(slot)).valid) armorPenalty = true;
-    });
-    player.setTag("debuff:heavy_armor", armorPenalty);
+    if (equipment) {
+        [EquipmentSlot.Head, EquipmentSlot.Chest, EquipmentSlot.Legs, EquipmentSlot.Feet].forEach(slotId => {
+            const slot = equipment.getEquipmentSlot(slotId);
+            if (slot && !checkReq(player, slot.getItem()).valid) armorPenalty = true;
+        });
+    }
+    if (armorPenalty) {
+        player.addTag("debuff:heavy_armor");
+    } else {
+        player.removeTag("debuff:heavy_armor");
+    }
 }
 
 export function checkReq(player, item) {
     if (!item) return { valid: true };
-    const customId = item.getDynamicProperty("deepcraft:item_id");
+    const customId = getItemId(item);
     if (!customId) return { valid: true };
     const def = EQUIPMENT_POOL[customId];
     if (!def || !def.req) return { valid: true };

@@ -2,17 +2,20 @@
 import { world, system } from "@minecraft/server";
 
 // --- Module Imports ---
-import { initializeGameLoop } from "./systems/game_loop.js";
+import { initializeGameLoop, initializeDeathCheckLoop, initializeHudLoop } from "./systems/game_loop.js";
 import { handlePlayerSpawn } from "./player/player_manager.js";
 import { handleItemUse } from "./systems/item_handler.js";
 import { handleScriptEventCommand } from "./systems/command_handler.js";
 import { handleEntityHurt } from "./combat/combat_system.js";
 import { handleEntityDie, handlePlayerLeave } from "./combat/death_system.js";
+import "./systems/custom_commands.js";
 
 // --- System Initialization ---
 
 // メインループを開始
 initializeGameLoop();
+initializeDeathCheckLoop(); // ★追加: 高速死亡チェックループを開始
+initializeHudLoop(); // ★追加: 高速HUD更新ループを開始
 
 // --- Event Subscriptions ---
 
@@ -51,9 +54,3 @@ world.afterEvents.playerLeave.subscribe((ev) => {
     } catch (e) { console.warn(`PlayerLeave Error: ${e} ${e.stack}`); }
 });
 
-// ScriptEventを受け取った時
-system.afterEvents.scriptEventReceive.subscribe((ev) => {
-    if (ev.id.startsWith("deepcraft:")) {
-        try { handleScriptEventCommand(ev); } catch (e) { console.warn(`ScriptEvent Error: ${e} ${e.stack}`); }
-    }
-});

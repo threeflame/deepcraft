@@ -3,121 +3,144 @@
 /*
 ==========================================================================
  🧠 AI CONTEXT MEMORY (DeepCraft Development Log)
- Version: 19.0 (Combat Log Fix & Partial Drop System Complete)
+==========================================================================
+## [v31.0] Hybrid Item Data Storage
+- **Policy**:
+    - Non-Stackable (Weapons/Armor) -> **Dynamic Properties** (Safer/Faster).
+    - Stackable (Materials) -> **Lore Encoding** (Prevents stack merging issues).
+- **Implementation**: `lore_manager.js` now handles this switching automatically via `setItemData` / `getItemId`.
+
+# 📜 Development History
+## [v30.1] HP Sync Logic Removal
+- **Change**: Removed logic that synced Virtual HP to Vanilla HP in `combat_system.js`.
+- **Reason**: Caused `ArgumentOutOfBoundsError` and interfered with external survival mechanics.
+- **Current**: Script only updates `deepcraft:hp` and NameTag. Vanilla HP management is handled externally.
+
+# 📜 Development History
+## [v30.0] Weapon Scaling System (Integer Based)
+- **Mechanic**: `ATK = Base + (Stat * Scale / 10)`.
+- **Stats**: Only `Mastery` (Light/Med/Heavy) and `Element` (Flame etc) affect damage. `Strength` is removed from damage calc.
+- **Data**: Added `scaling` property to `equipment.js` (e.g., `heavy: 15` = 1.5x scaling).
+
+
+# 📜 Development History
+## [v29.0] DeepCraft Reforged v3 (Balance Update)
+- **Concept**: HP 1000-2000 vs Dmg 50-100 at Endgame (Lv20).
+- **Stats**:
+    - Fortitude: Integrated HP & Def.
+    - Defense (Stat): Deprecated.
+- **Calculation**:
+    - HP = 300 + (Lv*30) + (Fort*12)
+    - ATK = Weapon + (Lv*3) + (Str*2.0)
+    - DefScore = Armor + (Lv*4) + (Fort*2)
+    - Reduction = Score / (Score + 150)
+
+## [v28.1] Command Rename
+- `/deepcraft:cgive`, `/deepcraft:csummon`
+
+# 📜 Development History
+## [v27.0] Summoner Class Implementation
+- **Feature**: Necromancer Staff & Summon Minion Skill.
+- **Entity**: `deepcraft:minion_zombie` (Friendly, Tameable).
+- **Mechanic**: Minions scale with Intelligence, follow owner, and ignore FF.
+- **Files**: `minion_zombie.json` added to entities.
+
+## [v26.1] Attack Speed Revert (Again)
+- **Status**: Removed. Vanilla combat speed.
+
+# 📜 Development History (開発の軌跡・日記)
+※ 新しい変更や決定事項はここに追加し、過去の経緯を参照できるようにする。
+
+# 📜 Development History
+## [v26.0] Attack Cooldown v2 (Timestamp Method)
+- **Re-implementation**: Attack cooldowns are back.
+- **Method**: Uses `system.currentTick` vs `deepcraft:next_attack_tick`. No timers involved.
+- **UI**: Simple Subtitle Gauge (Green/Red bars).
+
+## [v25.0] Native Custom Command Implementation
+- **Command**: `/deepcraft:menu`, `/sell`, etc.
+- **Registry**: `system.beforeEvents.startup`.
+
 ==========================================================================
 
-## 1. Project Overview
-- **Title**: DeepCraft
-- **Concept**: Deepwoken-inspired PvPvE RPG (Hardcore / Stat Building).
-- **Environment**: Minecraft BE Script API 1.13.0+
-- **Library**: Chest-UI (Menu System).
-- **GameRule Requirement**: `keepInventory` must be **TRUE**.
+# ⚠️ Active Technical Constraints & Ban List
+1.  **[BANNED] `system.runTimeout` for Cooldowns**
+    * **Reason**: Prone to bugs/desync.
+    * **Solution**: Use timestamp comparison (Tick-based).
 
-## 2. ⚠️ Technical Constraints & Ban List (修正時・使用禁止事項)
-1.  **[BANNED] `world.beforeEvents.entityHurt`**: 動作不安定のため使用禁止。全て `afterEvents` で処理する。
-2.  **[BANNED] `world.beforeEvents.playerLeave` for Spawning**:
-    * **理由**: 読み取り専用コンテキストのため、エンティティ生成やインベントリ変更ができない。
-    * **解決策**: `system.runInterval` で常時バックアップを取り、`afterEvents.playerLeave` で生成する。
-3.  **[BANNED] `processLevelUp` Function Separation**:
-    * **理由**: 処理が分散するとデータ保存タイミングがズレてバグる。
-    * **解決策**: レベルアップ処理は `upgradeStat` 内でアトミック（一括）に行う。
-4.  **[BANNED] Player Scaling**:
-    * **理由**: Hitbox Desync（判定ズレ）の主原因となるため、`player.json` からスケール関連の定義は全削除済み。
+2.  **[BANNED] `entity.runCommand()` (Sync)**
+    * **Solution**: `runCommandAsync`.
 
-5.  **[BANNED] `manifest.json` Direct Editing**:
-    * **理由**: Gemini Code Assistはプロジェクトファイル（`manifest.json`など）を直接編集できません。Script APIのバージョンアップなどは手動で行う必要があります。
+3.  **[BANNED] `EquipmentSlot` String Literals**
+    * **Solution**: `EquipmentSlot.Mainhand` (Enum).
+## [v23.0] Custom Command & API Stability Strategy
+- **Decision**: `world.beforeEvents.chatSend` is confirmed as **Beta API only**.
+- **Decision**: `CustomCommand` (Slash Commands) is available in **Stable API**.
+- **Action**:
+    - 廃止: `!menu` などのチャット検知方式。
+    - 採用: `CustomCommandRegistry` を使用したネイティブコマンド (`/menu`, `/sell` etc.)。
+    - 実装予定コマンド: `menu`, `sell`, `stats`, `quest`.
+- **Policy**: AI Memory will now serve as a persistent log to prevent repeating mistakes.
 
-6.  **[BANNED] `beforeEvents.chatSend` for Command Aliases**:
-    * **理由**: `manifest.json` で指定されている `@minecraft/server` v1.18.0 では、`chatSend` イベントのキャンセル (`ev.cancel`) ができません。
-    * **解決策**: カスタムコマンドはすべて `/scriptevent deepcraft:<command>` 形式で実装されています。`!` プレフィックスによるエイリアス機能は実装不可能です。
+## [v21.0] Attack Speed & Scale Logic Revert
+- **Issue**: Custom attack cooldowns via `runTimeout` caused permanent inability to attack due to `isValid` reference loss or sync issues.
+- **Issue**: `player.triggerEvent` for resizing was removed in API 2.x, causing errors.
+- **Fix**:
+    - Attack speed reverted to Vanilla (spam-clicking allowed).
+    - Removed all player scaling logic.
+- **Lesson**: Avoid complex async state management for high-frequency actions like combat.
 
-## 3. 🛡️ Critical Implementation Rules (基幹システムの正解ロジック)
-
-### A. HP System (Virtual HP)
-- **Vanilla HP**: `player.json` で **200** (ハート100個) に固定。
-- **Damage Handling**: `entityHurt` の**冒頭**で `resetToMax()` を実行し、バニラダメージを帳消しにする。
-- **Virtual HP**: スクリプト上の `deepcraft:hp` を計算結果で減算する。
-- **Death**: 仮想HP <= 0 で `kill` コマンドを実行。
-- **Respawn**: `playerSpawn` 時に仮想HPを最大値にリセットする（無限死防止）。
-
-### B. Level Up Logic
-- **Atomic Update**: 
-    - ポイント加算後に `if (next >= 15)` で分岐。
-    - レベルアップ時は `invested_points` に **必ず `0` を保存**。
-    - 途中なら加算した値を保存。
-    - これらを1つの関数内で行う。
-
-### C. Combat Mode & Anti-Combat Log
-- **Trigger**: 攻撃/被弾時にタイマー(20s)セット。
-- **Backup System**: 戦闘中(0.5秒毎)にインベントリと座標を `COMBAT_LOG_CACHE` に保存。
-- **Disconnect Penalty**:
-    - ログアウト検知(`afterEvents.playerLeave`)時、キャッシュがあればSoulを生成し、ワールドに処刑フラグ(`combat_log:<id>`)を保存。
-    - 次回ログイン時(`playerSpawn`)、フラグがあればインベントリ全没収＆3秒後に処刑。
-
-### D. Death Mechanics (Soul)
-- **Keep Inventory**: ゲームルールでONにする（散らばり防止）。
-- **Partial Drop**:
-    - **Hotbar (0-8), Armor, Offhand**: ドロップしない（確定キープ）。
-    - **Inventory (9-35)**: 各アイテムごとに確率で抽選。
-        - 当選 -> Soulに移動（インベントリから削除）。
-        - 落選 -> 手元に残る。
-    - Soul生成位置は `y + 1.0`。
-
-## 4. Current Mechanics / 現在の仕様
-
-### Stats & Progression
-- **Max Level**: 20 (Total 300 pts).
-- **Stats**: 14 types (Max 100). Used for requirements.
-- **Ether**: Regens 10% of rate every 0.1s.
-
-### Economy
-- **Currency**: Gold (`deepcraft:gold`).
-- **Market**: Global listing via chunked dynamic properties.
-  - Selling: Hand-held item only.
-  - Buying: Menu UI.
-
-### Content Data
-- **Equipment**: `equipment.js` (atk, def, req, skill).
-- **Talents**: `talents.js` (conditions, passive effects).
-- **Bosses**: `mobs.js` (AI skills, HP bar on NameTag).
+## [v20.0] API 2.3.0 Migration (Breaking Changes)
+- **Migration**: Updated `@minecraft/server` to 2.3.0 and `@minecraft/server-ui` to 2.0.0.
+- **Fixes**:
+    - `runCommand` -> `runCommandAsync`.
+    - `entity.isValid()` -> `entity.isValid` (Property).
+    - `getEquipment("Hand")` -> `getEquipmentSlot(EquipmentSlot.Mainhand).getItem()`.
+    - Fixed `EquipmentSlot` casing (`MainHand` -> `Mainhand`).
 
 ==========================================================================
-*/
 
-/*
+# ⚠️ Active Technical Constraints & Ban List (現在の技術的制約)
+※ 開発時に必ず遵守すること。
+
+1.  **[BANNED] `world.beforeEvents.chatSend`**
+    * **Reason**: Script API Stable版では使用不可（Beta機能）。
+    * **Solution**: カスタムコマンド機能を使用する。
+
+2.  **[BANNED] `entity.runCommand()` (Sync)**
+    * **Reason**: API 2.x で廃止。
+    * **Solution**: `runCommandAsync` を使用する。
+
+3.  **[BANNED] `EquipmentSlot` String Literals**
+    * **Reason**: 文字列指定 ("Mainhand") は不安定。
+    * **Solution**: 必ず `EquipmentSlot.Mainhand` (Enum) を使用する。
+
+4.  **[BANNED] `entity.triggerEvent()`**
+    * **Reason**: 廃止されたメソッド。
+    * **Solution**: コンポーネントの直接操作 (`component.value = ...`) を行う。
+
+5.  **[BANNED] Dynamic Property on Stackable Items**
+    * **Reason**: アイテムスタック時にデータが消失・競合するため。
+    * **Solution**: スタック可能なアイテムのデータは `Lore` (不可視色コード) に保存する。
+
 ==========================================================================
-## 5. 📂 File Structure & Roles (ファイル構成と役割)
+
+# 🛡️ Critical Implementation Rules (基幹システム仕様)
+
+### A. Command System (Target: CustomCommand)
+- **Commands**:
+    - `/menu`: Open Menu Hub.
+    - `/sell [price]`: Sell held item.
+    - `/stats`: Show player stats in chat.
+    - `/quest`: Open Quest Log.
+
+### B. Item Data Storage
+- **Lore式**: 全てのアイテムデータ保存の基本。`lore_manager.js` でエンコード/デコードを行う。
+
+### C. Combat System
+- **Damage**: `world.afterEvents.entityHurt` のみで処理。
+- **Calculation**: 攻撃力・防御力・タレント補正を計算し、`victim.applyDamage` または `setCurrentValue` (回復による相殺) で反映。
+- **Death**: `dead` タグを付与し、1tick後のループでドロップ処理とキル確定を行う。
+
 ==========================================================================
-
-### /scripts/
-  - **main.js**:
-    - プロジェクトのエントリーポイント。
-    - 各種イベント（`playerSpawn`, `entityHurt`など）を購読（subscribe）し、対応するハンドラ関数に処理を振り分ける。
-    - ゲームのメインループを開始する。
-
-### /scripts/data/
-  - **equipment.js**: カスタム装備（武器、防具）の性能や要求ステータスを定義する。
-  - **mobs.js**: カスタムMob（ボス、ゴブリンなど）の体力、装備、ドロップ品、使用スキルを定義する。
-  - **market.js**: グローバルマーケットの出品、購入、データ管理ロジックを担う。
-  - **quests.js**: クエストの目標や報酬を定義する。
-  - **skills.js**: プレイヤーが使用するアクティブスキルの効果やクールダウンを定義する。
-  - **talents.js**: パッシブスキル（タレント）の効果や抽選条件を定義する。
-
-### /scripts/player/
-  - **player_manager.js**: プレイヤーの初期化、レベルアップ、XP管理、プロファイル保存/読込など、プレイヤーデータの中核を管理する。
-  - **quest_manager.js**: クエストの受注や報酬受け取りのロジックを担う。
-  - **skill_manager.js**: プレイヤースキルの使用、クールダウン管理を行う。
-  - **stat_calculator.js**: プレイヤーやMobのステータス（攻撃力、防御力、HPなど）を、レベルや装備、タレントに基づいて計算する。
-
-### /scripts/systems/
-  - **command_handler.js**: `/scriptevent` で実行されるカスタムコマンドの処理を担う。
-  - **game_loop.js**: 0.5秒ごとに実行されるメインループ。プレイヤーのHUD表示、MobのAI、死亡処理などを定期的に実行する。
-  - **item_handler.js**: カスタムアイテムの生成、カスタムMobの召喚など、アイテムやエンティティの操作に関する処理を担う。
-
-### /scripts/combat/
-  - **combat_system.js**: ダメージ計算の中核。攻撃力、防御力、クリティカル、回避などを計算し、仮想HPに反映させる。
-  - **death_system.js**: エンティティの死亡イベントを処理する。主にドロップ品の生成や、コンバットログ（戦闘中の切断）ペナルティを担う。
-
-### /scripts/ui/
-  - **ui_manager.js**: `ChestFormData` を使用した各種メニュー（ステータス画面、タレント選択など）の表示と操作ロジックを担う。
 */

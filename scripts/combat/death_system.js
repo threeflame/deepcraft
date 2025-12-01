@@ -44,18 +44,54 @@ function handlePlayerKill(player, victim) {
     if (victim.hasTag("deepcraft:boss")) {
         const bossId = victim.getDynamicProperty("deepcraft:boss_id");
         const def = MOB_POOL[bossId];
+
+        // パーティXP共有
+        const partyId = player.getDynamicProperty("deepcraft:party_id");
+        const xpShareRadius = 30; // 30ブロック以内
+        const xpShareRate = 0.2;  // 20%
+
         if (def?.drops) {
             def.drops.forEach(drop => {
-                if (drop.chance && Math.random() > drop.chance) return;
+                if (drop.chance && Math.random() >= drop.chance) return;
                 if (drop.type === "xp") {
                     addXP(player, drop.amount);
-                    player.sendMessage(`§eボス撃破！ +${drop.amount} XP`);
+                    
+                    // パーティメンバーにボーナスXPを付与
+                    if (partyId) {
+                        const bonusXp = Math.floor(drop.amount * xpShareRate);
+                        world.getAllPlayers().forEach(p => {
+                            // ★修正箇所: isNear が使えないため、距離の二乗計算で判定する
+                            if (p.id !== player.id && p.getDynamicProperty("deepcraft:party_id") === partyId) {
+                                const dx = player.location.x - p.location.x;
+                                const dy = player.location.y - p.location.y;
+                                const dz = player.location.z - p.location.z;
+                                const distSq = dx * dx + dy * dy + dz * dz;
+                                
+                                if (distSq <= xpShareRadius * xpShareRadius) {
+                                    addXP(p, bonusXp);
+                                }
+                            }
+                        });
+                    }
                 }
                 if (drop.type === "item") {
-                    // ★変更: ドロップ定義に sellable があれば、販売可能なアイテムとして生成
-                    const item = createCustomItem(drop.id, drop.sellable || false);
-                    player.dimension.spawnItem(item, victim.location);
-                    player.sendMessage(`§6§lレアドロップ！ §r獲得: ${item.nameTag}`);
+                    let itemName;
+                    const dropCount = drop.amount || 1;
+
+                    for (let i = 0; i < dropCount; i++) {
+                        if (EQUIPMENT_POOL[drop.id]) {
+                            // カスタムアイテムの場合
+                            const item = createCustomItem(drop.id, drop.sellable || false); 
+                            itemName = item.nameTag;
+                            victim.dimension.spawnItem(item, victim.location);
+                        } else {
+                            // バニラアイテムの場合
+                            const item = new ItemStack(drop.id, 1);
+                            itemName = `§f${drop.id.replace("minecraft:", "").replace(/_/g, " ")}`;
+                            victim.dimension.spawnItem(item, victim.location);
+                        }
+                    }
+                    player.sendMessage(`§6§lレアドロップ！ §r獲得: ${itemName} x${dropCount}`);
                 }
             });
         }
@@ -64,15 +100,25 @@ function handlePlayerKill(player, victim) {
 }
 
 function handlePlayerDeath(player) {
+    player.removeTag("deepcraft:dead");
     player.setDynamicProperty("deepcraft:combat_timer", 0);
     player.setDynamicProperty("deepcraft:hp", player.getDynamicProperty("deepcraft:max_hp"));
 
-    const lostXP = player.getDynamicProperty("deepcraft:xp") || 0;
-    player.setDynamicProperty("deepcraft:xp", 0);
-    if (lostXP > 0) player.sendMessage(`§c死亡により ${lostXP} XPを失いました...`);
+    // --- ここから修正 (シンプル版) ---
+    const currentXP = player.getDynamicProperty("deepcraft:xp") || 0;
+    const level = player.getDynamicProperty("deepcraft:level") || 1;
 
-    // [修正] 装備品とインベントリの両方からドロップ処理を行う
-    // [修正] -> 通常死亡時はインベントリのみを対象とする
+    // 単純な計算: レベル × 5% をロスト (Lv20で全損)
+    // Math.min(..., 1.0) は「100%を超えないようにする」おまじない
+    const lossRate = Math.min(level * 0.05, 1.0); 
+    const remainingXP = Math.floor(currentXP * (1.0 - lossRate));
+
+    player.setDynamicProperty("deepcraft:xp", remainingXP);
+    
+    if (currentXP > remainingXP) {
+        player.sendMessage(`§cXPロスト: -${currentXP - remainingXP} (${(lossRate * 100).toFixed(0)}%)`);
+    }
+
     const inventory = player.getComponent("inventory").container;
     const droppedItems = [];
 

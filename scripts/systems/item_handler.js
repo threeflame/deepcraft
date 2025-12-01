@@ -6,39 +6,30 @@ import { checkReq } from "../player/player_manager.js";
 import { executeSkill } from "../player/skill_manager.js";
 import { MOB_POOL } from "../data/mobs.js";
 import { calculateEntityStats } from "../player/stat_calculator.js";
+import { updateMobNameTag } from "./mob_manager.js";
+// ★変更: 新しい関数をインポート
+import { setItemData, getItemId } from "./lore_manager.js";
+
+const SLOT_MAP = {
+    "mainhand": EquipmentSlot.Mainhand,
+    "offhand": EquipmentSlot.Offhand,
+    "head": EquipmentSlot.Head,
+    "chest": EquipmentSlot.Chest,
+    "legs": EquipmentSlot.Legs,
+    "feet": EquipmentSlot.Feet
+};
 
 export function handleItemUse(event) {
     const player = event.source;
     const item = event.itemStack;
 
-    // [提案] runTimeoutの動作確認テスト
-    if (item.typeId === "minecraft:stick") {
-        try {
-            player.sendMessage("§e3秒後にメッセージが表示されるかテストします...");
-            system.runTimeout(() => {
-                if (player.isValid()) {
-                    player.sendMessage("§a§lテスト成功！ system.runTimeout は正常に動作しています。");
-                }
-            }, 60); // 3秒 = 60 ticks
-        } catch (e) {
-            player.sendMessage(`§c§lテスト失敗！ system.runTimeout は利用できません。`);
-            player.sendMessage(`§cエラー: ${e}`);
-        }
-        return; // テストを実行したら他の処理はしない
-    }
-
     if (item.typeId === "minecraft:compass") {
-        const combatTimer = player.getDynamicProperty("deepcraft:combat_timer") || 0;
-        if (combatTimer > 0) {
-            player.playSound("note.bass");
-            player.sendMessage(`§c§l戦闘中はメニューを開けません！ (§c${combatTimer.toFixed(1)}s§c)`);
-            return;
-        }
         openMenuHub(player);
         return;
     }
 
-    const customId = item.getDynamicProperty("deepcraft:item_id");
+    // ★変更: getItemIdを使用
+    const customId = getItemId(item);
     if (customId) {
         const def = EQUIPMENT_POOL[customId];
         if (def && def.skillId) {
@@ -52,12 +43,6 @@ export function handleItemUse(event) {
     }
 }
 
-/**
- * プレイヤーにカスタムアイテムを与える
- * @param {import("@minecraft/server").Player} player 
- * @param {string} itemId 
- * @param {boolean} [isSellable=false] マーケットで販売可能にするか
- */
 export function giveCustomItem(player, itemId, isSellable = false) {
     const def = EQUIPMENT_POOL[itemId];
     if (!def) { player.sendMessage(`§cアイテムが見つかりません: ${itemId}`); return; }
@@ -71,40 +56,51 @@ export function summonBoss(player, bossId) {
     if (!def) { player.sendMessage(`§cボスIDが見つかりません。`); return; }
     try {
         const boss = player.dimension.spawnEntity(def.type, player.location);
-        boss.addTag("deepcraft:boss"); // カスタムMobを識別するための汎用タグ
+        boss.addTag("deepcraft:boss"); 
         boss.setDynamicProperty("deepcraft:boss_id", bossId);
         boss.nameTag = def.name;
 
-        // 仕様書(v2.0)に基づき、スクリプトによる生存保証（HP回復や耐性付与）は一切行わない。
-        // Mobの生存は、ユーザーが設置するコマンドブロック等による再生エフェクトに依存する。
-
         const equip = boss.getComponent("equippable");
         if (equip && def.equipment) {
-            Object.entries(def.equipment).forEach(([slot, itemId]) => {
-                equip.setEquipment(slot, createCustomItem(itemId));
+            Object.entries(def.equipment).forEach(([slotName, itemId]) => {
+                const slotEnum = SLOT_MAP[slotName.toLowerCase()];
+                if (slotEnum) {
+                    equip.getEquipmentSlot(slotEnum).setItem(createCustomItem(itemId));
+                }
             });
         }
-        // ★追加: 召喚時にステータスを初期化し、HPバーを即時表示させる
+
+        if (def.scale) {
+            const scale = boss.getComponent("minecraft:scale");
+            if (scale) scale.value = def.scale;
+        }
+        if (def.speed) {
+            const movement = boss.getComponent("minecraft:movement");
+            if (movement) movement.setCurrentValue(def.speed);
+        }
+
         calculateEntityStats(boss);
+        updateMobNameTag(boss);
 
         player.sendMessage(`§c§l警告: ${def.name} が出現しました！`);
         player.playSound("mob.enderdragon.growl");
     } catch (e) { player.sendMessage(`§cエラー: ${e}`); }
 }
 
-/**
- * カスタムアイテムのItemStackを生成する
- * @param {string} itemId 
- * @param {boolean} [isSellable=false] マーケットで販売可能にするか
- * @returns {ItemStack}
- */
 export function createCustomItem(itemId, isSellable = false) {
     const def = EQUIPMENT_POOL[itemId];
     if (!def) return new ItemStack(itemId, 1);
     const item = new ItemStack(def.baseItem, 1);
     item.nameTag = def.name;
-    item.setLore(def.lore);
-    item.setDynamicProperty("deepcraft:item_id", itemId);
-    if (isSellable) item.setDynamicProperty("deepcraft:sellable", true);
+
+    // ★変更: setItemDataを使用 (自動でDPかLoreか判断される)
+    const extraData = {};
+    if (isSellable) extraData.sellable = true;
+    
+    // 既存のLoreがあればセットしてからデータ埋め込み
+    if (def.lore) item.setLore(def.lore);
+    
+    setItemData(item, itemId, extraData);
+
     return item;
 }

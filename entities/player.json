@@ -15,10 +15,11 @@
         "tag_draw_bow": "controller.animation.tag_draw_bow"
       }
     },
+    
     "component_groups": {
       "reset": {
         "minecraft:nameable": { "always_show": true },
-        "minecraft:health": { "value": 200, "max": 200 },
+        "minecraft:health": { "value": 20, "max": 20 },
         "minecraft:attack": { "damage": 1 },
         "minecraft:movement": { "value": 0.1 },
         "minecraft:knockback_resistance": { "max": 0.0 }
@@ -27,8 +28,8 @@
       "knockback_resistance100": { "minecraft:knockback_resistance": { "max": 1.0 } },
       "knockback_resistance_reset": { "minecraft:knockback_resistance": { "max": 0.0 } },
       "scale_reset": { "minecraft:scale": { "value": 1.0 } }
-
     },
+    
     "components": {
       "minecraft:experience_reward": { "on_death": "Math.Min(query.player_level * 7, 100)" },
       "minecraft:type_family": { "family": [ "player" ] },
@@ -36,18 +37,30 @@
       "minecraft:loot": { "table": "loot_tables/empty.json" },
       "minecraft:collision_box": { "width": 0.6, "height": 1.8 },
       "minecraft:can_climb": {},
+      
       "minecraft:movement": { "value": 0.1 },
+      "minecraft:movement.basic": {}, 
+      "minecraft:jump.static": {},     
+      "minecraft:input_ground_controlled": {}, 
+      
       "minecraft:attack": { "damage": 1 },
-      "minecraft:health": { "value": 200, "max": 200 },
+      "minecraft:health": { "value": 20, "max": 20 }, 
       "minecraft:player.saturation": { "value": 20, "max": 20 },
       "minecraft:player.exhaustion": { "value": 0, "max": 20 },
       "minecraft:player.level": { "value": 0, "max": 24791 },
       "minecraft:player.experience": { "value": 0, "max": 1 },
       "minecraft:breathable": { "total_supply": 15, "suffocate_time": -1 },
       "minecraft:nameable": { "always_show": true, "allow_name_tag_renaming": false },
-      "minecraft:physics": { "push_towards_closest_space": true },
-      "minecraft:pushable": { "is_pushable": false, "is_pushable_by_piston": true }
+      
+     
+      "minecraft:physics": { 
+        "has_gravity": true,
+        "has_collision": true,
+        "push_towards_closest_space": true 
+      },
+      "minecraft:pushable": { "is_pushable": true, "is_pushable_by_piston": true }
     },
+    
     "events": {
       "reset": { "add": { "component_groups": [ "reset" ] } },
       "knockback_resistance100": { "add": { "component_groups": [ "knockback_resistance100" ] } },

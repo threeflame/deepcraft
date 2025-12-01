@@ -6,24 +6,25 @@ export const EQUIPMENT_POOL = {
     // ==========================================
     "trainee_sword": {
         name: "§fTrainee Sword",
-        lore: ["§7鍛錬用の剣。", "§eATK: 3"],
+        lore: ["§7鍛錬用の剣。", "§eATK: 5"],
         baseItem: "minecraft:wooden_sword",
-        stats: { atk: 3 }, // ★追加
-        req: {} 
+        stats: { atk: 5 },
+        req: {},
+        scaling: { medium: 2 }
     },
     "rusty_axe": {
         name: "§fRusty Axe",
-        lore: ["§7錆びついた斧。", "§eATK: 4"],
+        lore: ["§7錆びた斧。", "§eATK: 8"],
         baseItem: "minecraft:wooden_axe",
-        stats: { atk: 4 }, // ★追加
-        req: {} 
+        stats: { atk: 8 },
+        req: {},
+        scaling: { heavy: 2 }
     },
     "goblin_ear": {
-        name: "§aゴブリンの耳",
-        lore: ["§7マーケットで売れるかもしれない。"],
+        name: "§aGoblin Ear",
+        lore: ["§7素材。"],
         baseItem: "minecraft:rabbit_foot",
-        stats: {},
-        req: {}
+        stats: {}, req: {}
     },
 
     // ==========================================
@@ -31,31 +32,35 @@ export const EQUIPMENT_POOL = {
     // ==========================================
     "soldier_blade": {
         name: "§bSoldier Blade",
-        lore: ["§7兵士の剣。", "§eATK: 6", "§cReq: Strength 10"],
+        lore: ["§7兵士の剣。", "§eATK: 25", "§cReq: Str 10"],
         baseItem: "minecraft:iron_sword",
-        stats: { atk: 6 },
-        req: { strength: 10 }
+        stats: { atk: 25 },
+        req: { strength: 10 },
+        scaling: { medium: 5 }
     },
     "thief_dagger": {
         name: "§bThief Dagger",
-        lore: ["§7盗賊の短剣。", "§eATK: 4", "§cReq: Agility 10"],
+        lore: ["§7盗賊の短剣。", "§eATK: 20", "§cReq: Agi 10"],
         baseItem: "minecraft:iron_sword",
-        stats: { atk: 4 },
-        req: { agility: 10 }
+        stats: { atk: 20 },
+        req: { agility: 10 },
+        scaling: { light: 4 }
     },
     "heavy_mace": {
         name: "§bHeavy Mace",
-        lore: ["§7重たいメイス。", "§eATK: 8", "§cReq: Heavy 15"],
+        lore: ["§7メイス。", "§eATK: 35", "§cReq: Heavy 15"],
         baseItem: "minecraft:iron_shovel",
-        stats: { atk: 8 },
-        req: { heavy: 15 }
+        stats: { atk: 35 },
+        req: { heavy: 15 },
+        scaling: { heavy: 6 }
     },
     "hunter_bow": {
         name: "§bHunter Bow",
-        lore: ["§7狩人の弓。", "§eATK: 5", "§cReq: Light 15"],
+        lore: ["§7狩人の弓。", "§eATK: 25", "§cReq: Light 15"],
         baseItem: "minecraft:bow",
-        stats: { atk: 5 },
-        req: { light: 15 }
+        stats: { atk: 25 },
+        req: { light: 15 },
+        scaling: { light: 5 }
     },
 
     // ==========================================
@@ -63,31 +68,35 @@ export const EQUIPMENT_POOL = {
     // ==========================================
     "katana": {
         name: "§aKatana",
-        lore: ["§7切れ味鋭い刀。", "§eATK: 10", "§cReq: Agility 20, Medium 15"],
+        lore: ["§7刀。", "§eATK: 40", "§cReq: Agi 20"],
         baseItem: "minecraft:iron_sword",
-        stats: { atk: 10 },
-        req: { agility: 20, medium: 15 }
+        stats: { atk: 40 },
+        req: { agility: 20, medium: 15 },
+        scaling: { medium: 8 }
     },
     "battle_axe": {
         name: "§aBattle Axe",
-        lore: ["§7戦斧。", "§eATK: 12", "§cReq: Strength 25, Heavy 10"],
+        lore: ["§7戦斧。", "§eATK: 50", "§cReq: Str 25"],
         baseItem: "minecraft:iron_axe",
-        stats: { atk: 12 },
-        req: { strength: 25, heavy: 10 }
+        stats: { atk: 50 },
+        req: { strength: 25, heavy: 10 },
+        scaling: { heavy: 7 }
     },
     "noble_rapier": {
         name: "§aNoble Rapier",
-        lore: ["§7貴族のレイピア。", "§eATK: 9", "§cReq: Charisma 20, Agility 20"],
+        lore: ["§7レイピア。", "§eATK: 35"],
         baseItem: "minecraft:golden_sword",
-        stats: { atk: 9 },
-        req: { charisma: 20, agility: 20 }
+        stats: { atk: 35 },
+        req: { charisma: 20, agility: 20 },
+        scaling: { medium: 6 }
     },
     "obsidian_shield": {
         name: "§aObsidian Shield",
-        lore: ["§7堅牢な盾。", "§eDEF: 15", "§cReq: Defense 30"],
+        lore: ["§7盾。", "§bDEF: 40"],
         baseItem: "minecraft:shield",
-        stats: { def: 15 }, // ★防具なのでDEF
-        req: { defense: 30 }
+        stats: { def: 40 },
+        req: { fortitude: 30 },
+        scaling: {}
     },
 
     // ==========================================
@@ -95,43 +104,48 @@ export const EQUIPMENT_POOL = {
     // ==========================================
     "wind_spear": {
         name: "§eWind Spear",
-        lore: ["§7風を纏う槍。", "§eATK: 14", "§6[R-Click]: Gale Dash", "§cReq: Gale 20, Agility 30"],
+        lore: ["§7風槍。", "§eATK: 45"],
         baseItem: "minecraft:iron_shovel",
-        stats: { atk: 14 },
+        stats: { atk: 45 },
         req: { gale: 20, agility: 30 },
-        skillId: "gale_dash"
+        skillId: "gale_dash",
+        scaling: { medium: 5, gale: 4 }
     },
     "flame_sword": {
         name: "§eFlame Sword",
-        lore: ["§7炎の魔剣。", "§eATK: 16", "§6[R-Click]: Fireball", "§cReq: Flame 25, Strength 25"],
+        lore: ["§7炎剣。", "§eATK: 50"],
         baseItem: "minecraft:golden_sword",
-        stats: { atk: 16 },
+        stats: { atk: 50 },
         req: { flame: 25, strength: 25 },
-        skillId: "fireball"
+        skillId: "fireball",
+        scaling: { medium: 5, flame: 5 }
     },
     "frost_dagger": {
         name: "§eFrost Dagger",
-        lore: ["§7氷の短剣。", "§eATK: 12", "§6[R-Click]: Ice Shard", "§cReq: Frost 25, Agility 25"],
+        lore: ["§7氷剣。", "§eATK: 35"],
         baseItem: "minecraft:iron_sword",
-        stats: { atk: 12 },
+        stats: { atk: 35 },
         req: { frost: 25, agility: 25 },
-        skillId: "ice_shard"
+        skillId: "ice_shard",
+        scaling: { light: 4, frost: 5 }
     },
     "thunder_hammer": {
         name: "§eThunder Hammer",
-        lore: ["§7雷神の鎚。", "§eATK: 18", "§6[R-Click]: Smite", "§cReq: Thunder 30, Heavy 30"],
+        lore: ["§7雷鎚。", "§eATK: 60"],
         baseItem: "minecraft:iron_pickaxe",
-        stats: { atk: 18 },
+        stats: { atk: 60 },
         req: { thunder: 30, heavy: 30 },
-        skillId: "thunder_smite"
+        skillId: "thunder_smite",
+        scaling: { heavy: 6, thunder: 4 }
     },
     "paladin_mace": {
         name: "§ePaladin Mace",
-        lore: ["§7聖騎士のメイス。", "§eATK: 15", "§6[R-Click]: Healing Aura", "§cReq: Fortitude 30, Willpower 30"],
+        lore: ["§7聖騎士のメイス。", "§eATK: 50"],
         baseItem: "minecraft:golden_axe",
-        stats: { atk: 15 },
+        stats: { atk: 50 },
         req: { fortitude: 30, willpower: 30 },
-        skillId: "healing_aura"
+        skillId: "healing_aura",
+        scaling: { medium: 6 }
     },
 
     // ==========================================
@@ -139,32 +153,100 @@ export const EQUIPMENT_POOL = {
     // ==========================================
     "heavy_claymore": {
         name: "§dHeavy Claymore",
-        lore: ["§7破壊の大剣。", "§eATK: 25", "§cReq: Strength 50, Heavy 30"],
+        lore: ["§7大剣。", "§eATK: 70"],
         baseItem: "minecraft:diamond_sword",
-        stats: { atk: 25 },
-        req: { strength: 50, heavy: 30 }
+        stats: { atk: 70 },
+        req: { strength: 50, heavy: 30 },
+        scaling: { heavy: 10 }
     },
     "spell_blade": {
         name: "§dSpell Blade",
-        lore: ["§7魔導剣。", "§eATK: 20", "§cReq: Intelligence 50"],
+        lore: ["§7魔導剣。", "§eATK: 60"],
         baseItem: "minecraft:diamond_sword",
-        stats: { atk: 20 },
-        req: { intelligence: 50 }
+        stats: { atk: 60 },
+        req: { intelligence: 50 },
+        scaling: { medium: 6, intelligence: 6 }
     },
     "titan_axe": {
         name: "§6§lTitan Axe",
-        lore: ["§7巨人の斧。", "§eATK: 35", "§6[R-Click]: Ground Smash", "§cReq: Strength 60, Heavy 40"],
+        lore: ["§7巨人の斧。", "§eATK: 80"],
         baseItem: "minecraft:netherite_axe",
-        stats: { atk: 35 },
+        stats: { atk: 80 },
         req: { strength: 60, heavy: 40 },
-        skillId: "ground_smash"
+        skillId: "ground_smash",
+        scaling: { heavy: 12 }
     },
     "warlord_blade": {
         name: "§6§lWarlord Blade",
-        lore: ["§7覇王の剣。", "§eATK: 30", "§6[R-Click]: War Cry", "§cReq: Strength 50, Charisma 50"],
+        lore: ["§7覇王の剣。", "§eATK: 100"],
         baseItem: "minecraft:netherite_sword",
-        stats: { atk: 30 },
+        stats: { atk: 100 },
         req: { strength: 50, charisma: 50 },
-        skillId: "war_cry"
+        skillId: "war_cry",
+        scaling: { medium: 11 }
+    },
+    "necromancer_staff": {
+        name: "§5Necromancer Staff",
+        lore: ["§7召喚杖。", "§eATK: 20"],
+        baseItem: "minecraft:golden_hoe",
+        stats: { atk: 20 },
+        req: { intelligence: 30, charisma: 20 },
+        skillId: "raise_dead",
+        scaling: { intelligence: 5, charisma: 5 }
+    },
+
+    // ==========================================
+    //  Debug / Testing
+    // ==========================================
+    "testing_wand": { name: "§6Testing Wand", lore: [], baseItem: "minecraft:breeze_rod", stats: { atk: 0 }, req: {}, skillId: "target_mob", scaling: {} },
+    "testing_staff": { name: "§cTesting Staff", lore: [], baseItem: "minecraft:blaze_rod", stats: { atk: 0 }, req: {}, skillId: "target_player", scaling: {} },
+    
+    // ★追加: 攻撃速度検証用
+    "debug_fast_blade": {
+        name: "§b§lGodspeed Dagger",
+        lore: ["§7[DEBUG] 攻撃速度: 4 Tick (0.2s)"],
+        baseItem: "minecraft:iron_sword",
+        stats: { atk: 10 },
+        req: {},
+        scaling: { light: 5 }
+    },
+    "debug_slow_hammer": {
+        name: "§4§lSloth Hammer",
+        lore: ["§7[DEBUG] 攻撃速度: 60 Tick (3.0s)"],
+        baseItem: "minecraft:iron_shovel",
+        stats: { atk: 100 },
+        req: {},
+        scaling: { heavy: 10 }
     }
+};
+
+// ★追加: 攻撃速度データ (UI表示用)
+// 値が大きいほどゲージの溜まりが遅い
+export const EQUIPMENT_STATS = {
+    // Vanilla
+    "minecraft:wooden_sword": { speed: 12 },
+    "minecraft:stone_sword": { speed: 12 },
+    "minecraft:iron_sword": { speed: 12 },
+    "minecraft:golden_sword": { speed: 12 },
+    "minecraft:diamond_sword": { speed: 12 },
+    "minecraft:netherite_sword": { speed: 12 },
+    
+    "minecraft:wooden_axe": { speed: 20 },
+    "minecraft:stone_axe": { speed: 20 },
+    "minecraft:iron_axe": { speed: 20 },
+    "minecraft:golden_axe": { speed: 20 },
+    "minecraft:diamond_axe": { speed: 20 },
+    "minecraft:netherite_axe": { speed: 20 },
+    
+    // Custom
+    "thief_dagger": { speed: 8 },
+    "katana": { speed: 10 },
+    "soldier_blade": { speed: 12 },
+    "heavy_claymore": { speed: 18 },
+    "titan_axe": { speed: 24 },
+    "necromancer_staff": { speed: 15 },
+
+    // Debug
+    "debug_fast_blade": { speed: 4 },   // 激早
+    "debug_slow_hammer": { speed: 60 }  // 激おそ
 };

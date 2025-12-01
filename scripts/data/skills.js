@@ -1,7 +1,117 @@
 // BP/scripts/data/skills.js
 import { world, system } from "@minecraft/server";
+import { updateMobNameTag } from "../systems/mob_manager.js";
+import { getAffiliationId } from "../combat/combat_system.js";
+
+// --- Helper for LOS Targeting ---
+/**
+ * プレイヤーの視線ベクトル上に最も近い有効なターゲットを検索する。
+ * @param {"mob" | "player"} targetType - プレイヤーまたはMobのどちらをターゲットするか
+ */
+function findTargetInLos(player, maxDistance, targetType) {
+    const targets = player.dimension.getEntities({ 
+        location: player.location,
+        maxDistance: maxDistance,
+        excludeTypes: ["minecraft:item", "minecraft:xp_orb"] 
+    });
+
+    const playerViewVector = player.getViewDirection();
+    const playerLoc = player.getHeadLocation(); 
+    let closestTarget = null;
+    let maxAlignment = 0.98; // クロスヘアの中心に近いほど値が高くなる (1.0が完全一致)
+
+    const playerPartyId = player.getDynamicProperty("deepcraft:party_id");
+
+    for (const target of targets) {
+        if (target.id === player.id || !target.isValid) continue;
+        
+        // ★修正点: collision_box の存在チェックを追加
+        const collisionBox = target.getComponent('minecraft:collision_box');
+        if (!collisionBox) {
+            // Collision Boxがないエンティティ（多くは流体やエフェクト）は無視
+            continue;
+        }
+
+        // 1. Target Type & FF Check
+        const targetAffiliationId = getAffiliationId(target);
+        
+        // 味方エンティティはスキップ
+        if (playerPartyId && targetAffiliationId && playerPartyId === targetAffiliationId) {
+            continue; 
+        }
+
+        // プレイヤータイプフィルタリング
+        if (targetType === "mob" && target.typeId === "minecraft:player") {
+            continue; // プレイヤーは除外
+        }
+        if (targetType === "player" && target.typeId !== "minecraft:player") {
+            continue; // Mobは除外
+        }
+
+        // 2. LOS Check (Dot Productで視線との一致度を計算)
+        const dx = target.location.x - playerLoc.x;
+        // 修正後の安全なアクセス
+        const dy = (target.location.y + collisionBox.height / 2) - playerLoc.y; 
+        const dz = target.location.z - playerLoc.z;
+        const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
+        if (dist === 0) continue;
+
+        const vectorToTarget = { x: dx / dist, y: dy / dist, z: dz / dist };
+        
+        const alignment = playerViewVector.x * vectorToTarget.x + playerViewVector.y * vectorToTarget.y + playerViewVector.z * vectorToTarget.z;
+
+        if (alignment > maxAlignment) {
+            maxAlignment = alignment;
+            closestTarget = target;
+        }
+    }
+    return closestTarget;
+}
 
 export const SKILL_POOL = {
+
+    // ★新規スキル 1: Mob Targetting (PvE)
+    "target_mob": {
+        name: "§9Target Mob",
+        cooldown: 20, // 1秒 = 20 tick
+        manaCost: 3,
+        onUse: (player) => {
+            const target = findTargetInLos(player, 15, "mob"); // 15マス以内
+            
+            if (target) {
+                target.applyDamage(5, { cause: EntityDamageCause.magic });
+                player.sendMessage(`§aMob Target: ${target.name} (Hit!)`);
+                player.dimension.spawnParticle("minecraft:basic_flame_particle", target.location);
+                return true;
+            } else {
+                player.sendMessage("§cMobターゲットが見つかりません。");
+                return false;
+            }
+        }
+    },
+
+    // ★新規スキル 2: Player Targetting (PvP)
+    "target_player": {
+        name: "§cTarget Player",
+        cooldown: 20, // 1秒 = 20 tick
+        manaCost: 3,
+        onUse: (player) => {
+            const target = findTargetInLos(player, 30, "player"); // 30マス以内
+
+            if (target) {
+                // FF防止はcombat_system.jsで行うため、ここでは攻撃実行
+                target.applyDamage(10, { cause: EntityDamageCause.entityAttack }); 
+                target.addEffect("blindness", 60, { amplifier: 0 }); // デバフ付与 (ブリンク)
+                player.sendMessage(`§ePlayer Target: ${target.name} (Attacked!)`);
+                player.dimension.spawnParticle("minecraft:endrod", target.location);
+                return true;
+            } else {
+                player.sendMessage("§cプレイヤーターゲットが見つかりません。");
+                return false;
+            }
+        }
+    },
+
     // 風の突進 (Gale Dash)
     "gale_dash": {
         name: "§fGale Dash",
@@ -198,6 +308,72 @@ export const SKILL_POOL = {
         }
     },
 
+    "raise_dead": {
+        name: "§5Raise Dead",
+        cooldown: 20,
+        manaCost: 60,
+        onUse: (player) => {
+            const dimension = player.dimension;
+            const loc = player.location;
+            
+            const existingMinions = dimension.getEntities({ 
+                tags: [`owner:${player.id}`, "deepcraft:minion"] 
+            });
+            if (existingMinions.length >= 3) {
+                player.sendMessage("§cこれ以上召喚できません。");
+                return false;
+            }
+
+            // ★ステータス計算 (プレイヤーの能力依存)
+            const intelligence = player.getDynamicProperty("deepcraft:intelligence") || 0;
+            const charisma = player.getDynamicProperty("deepcraft:charisma") || 0;
+            
+            // HP: 基礎20 + (INT * 2)
+            const minionMaxHP = 20 + (intelligence * 2);
+            // ATK: 基礎5 + (CHA * 0.5)
+            const minionAtk = 5 + Math.floor(charisma * 0.5);
+
+            for (let i = 0; i < 2; i++) {
+                if (existingMinions.length + i >= 3) break;
+
+                const spawnPos = {
+                    x: loc.x + (Math.random() - 0.5) * 3,
+                    y: loc.y,
+                    z: loc.z + (Math.random() - 0.5) * 3
+                };
+
+                try {
+                    const minion = dimension.spawnEntity("deepcraft:minion_zombie", spawnPos);
+                    
+                    const tameComp = minion.getComponent("minecraft:tameable");
+                    if (tameComp) tameComp.tame(player);
+
+                    minion.addTag("deepcraft:minion");
+                    minion.addTag(`owner:${player.id}`);
+                    minion.setDynamicProperty("deepcraft:owner_id", player.id);
+                    minion.setDynamicProperty("deepcraft:owner_name", player.name);
+                    
+                    // ★ここが重要: 仮想ステータスの初期化
+                    minion.setDynamicProperty("deepcraft:max_hp", minionMaxHP);
+                    minion.setDynamicProperty("deepcraft:hp", minionMaxHP);
+                    minion.setDynamicProperty("deepcraft:atk", minionAtk); // 攻撃力を保存
+
+                    // HPバーの即時反映
+                    updateMobNameTag(minion);
+
+                    // 出現エフェクト
+                    dimension.spawnParticle("minecraft:evoker_spell", spawnPos);
+                    dimension.playSound("mob.zombie.say", spawnPos);
+
+                } catch (e) {
+                    player.sendMessage("§c召喚失敗: " + e);
+                }
+            }
+            
+            return true;
+        }
+    },
+
     // ウォークライ (War Cry)
     "war_cry": {
         name: "§cWar Cry",
@@ -227,5 +403,69 @@ export const SKILL_POOL = {
                 });
             }
         }
+    },
+    // 【検証用】パーティ保護テスト (Party Safe Test)
+    "party_safe_test": {
+        name: "§bParty Safe Test",
+        cooldown: 2,
+        manaCost: 0,
+        onUse: (player) => {
+            const dimension = player.dimension;
+            const loc = player.location;
+            
+            // 1. 検索設定 (プレイヤーも対象に含めるため excludeFamilies は設定しない)
+            const options = {
+                location: loc,
+                maxDistance: 10,
+                excludeTypes: ["minecraft:item", "minecraft:xp_orb", "minecraft:arrow", "minecraft:snowball"]
+            };
+            
+            const targets = dimension.getEntities(options);
+            const myPartyId = player.getDynamicProperty("deepcraft:party_id");
+            
+            let foundTarget = false;
+
+            targets.forEach(target => {
+                if (target.id === player.id) return; // 自分自身は除外
+
+                // 2. パーティ判定ロジック
+                let isAlly = false;
+                if (target.typeId === "minecraft:player") {
+                    const targetPartyId = target.getDynamicProperty("deepcraft:party_id");
+                    // 自分も相手もパーティに入っており、かつIDが一致する場合
+                    if (myPartyId && targetPartyId && targetPartyId === myPartyId) {
+                        isAlly = true;
+                    }
+                }
+
+                // 3. 結果の実行
+                if (isAlly) {
+                    // --- 味方の場合 (防いだ) ---
+                    player.sendMessage(`§a[検証] ${target.name} はパーティメンバーなので保護しました。`);
+                    // 安全を示す緑のパーティクル
+                    dimension.spawnParticle("minecraft:villager_happy", target.location);
+                } else {
+                    // --- 敵の場合 (防がない) ---
+                    target.applyDamage(5);
+                    target.applyKnockback(0, 0, 0.5, 0.3);
+                    // 攻撃を示す爆発パーティクル
+                    dimension.spawnParticle("minecraft:huge_explosion_emitter", target.location);
+                    
+                    if (target.typeId === "minecraft:player") {
+                        player.sendMessage(`§c[検証] ${target.name} に命中！ (敵対判定)`);
+                    }
+                }
+                foundTarget = true;
+            });
+
+            if (foundTarget) {
+                player.playSound("random.orb"); // 発動音
+                return true;
+            } else {
+                player.sendMessage("§7範囲内に誰もいません。");
+                return false;
+            }
+        }
     }
 };
+

@@ -3,133 +3,188 @@ import { EquipmentSlot } from "@minecraft/server";
 import { CONFIG } from "../config.js";
 import { EQUIPMENT_POOL } from "../data/equipment.js";
 import { MOB_POOL } from "../data/mobs.js";
+import { decodeLoreData, getItemId } from "../systems/lore_manager.js";
 
-export function calculateEntityStats(entity) { // exportされていることを確認
+export function calculateEntityStats(entity) {
     const stats = {
-        atk: 0, def: 0, critChance: CONFIG.COMBAT.BASE_CRIT_CHANCE, critMult: CONFIG.COMBAT.BASE_CRIT_MULT,
-        speed: 1.0, maxEther: CONFIG.ETHER_BASE, etherRegen: CONFIG.ETHER_REGEN_BASE, maxHP: 100, evasion: 0,
-        details: { atk: [], def: [], critChance: [], critMult: [], ether: [], regen: [], speed: [], evasion: [] }
+        atk: 0, def: 0, 
+        critChance: CONFIG.COMBAT.BASE_CRIT_CHANCE, 
+        critMult: CONFIG.COMBAT.BASE_CRIT_MULT,
+        speed: 1.0, 
+        maxEther: CONFIG.ETHER_BASE, 
+        etherRegen: CONFIG.ETHER_REGEN_BASE, 
+        maxHP: 100, 
+        evasion: 0,
+        penetration: 0,
+        magicPower: 1.0,
+        magicResist: 0,
+        details: { atk: [], def: [], critChance: [], critMult: [], hp: [], speed: [], other: [], ether: [], regen: [], evasion: [] } 
     };
-
-    const addDetail = (key, source, value, isRate = false, isMult = false) => {
-        if (value === 0) return;
-        let valStr = isMult ? `x${value.toFixed(1)}` : isRate ? `${value > 0 ? '+' : ''}${(value * 100).toFixed(1)}%` : `${value > 0 ? '+' : ''}${value.toFixed(1)}`;
-        stats.details[key].push(`§7${source}: §f${valStr}`);
-    };
-
-    addDetail('critChance', '基礎値', CONFIG.COMBAT.BASE_CRIT_CHANCE, true);
-    addDetail('critMult', '基礎値', CONFIG.COMBAT.BASE_CRIT_MULT, true);
-    addDetail('ether', '基礎値', CONFIG.ETHER_BASE);
-    addDetail('regen', '基礎値', CONFIG.ETHER_REGEN_BASE);
-    addDetail('speed', '基礎値', 1.0, false, true);
 
     if (entity.typeId === "minecraft:player") {
-        calculatePlayerStats(entity, stats, addDetail);
+        calculatePlayerStats(entity, stats);
     } else {
         calculateMobStats(entity, stats);
     }
     return stats;
 }
 
-function calculatePlayerStats(player, stats, addDetail) {
+function calculatePlayerStats(player, stats) {
     const p = (prop) => player.getDynamicProperty(prop) || 0;
-    const str = p("deepcraft:strength"), fort = p("deepcraft:fortitude"), agi = p("deepcraft:agility");
-    const int = p("deepcraft:intelligence"), will = p("deepcraft:willpower"), defStat = p("deepcraft:defense");
+    
+    const str = p("deepcraft:strength");
+    const fort = p("deepcraft:fortitude");
+    const agi = p("deepcraft:agility");
+    const int = p("deepcraft:intelligence");
+    const will = p("deepcraft:willpower");
+    const oldDef = p("deepcraft:defense"); 
+    
+    const heavy = p("deepcraft:heavy");
+    const medium = p("deepcraft:medium");
+    const light = p("deepcraft:light");
+
     let level = p("deepcraft:level");
     if (level < 1) level = 1;
 
-    const equip = player.getComponent("equippable");
-    const equipStats = { atk: 0, def: 0 };
-    equipStats.atk += getEquipmentStats(equip.getEquipment(EquipmentSlot.Mainhand)).atk;
-    [EquipmentSlot.Head, EquipmentSlot.Chest, EquipmentSlot.Legs, EquipmentSlot.Feet].forEach(slot => {
-        equipStats.def += getEquipmentStats(equip.getEquipment(slot)).def;
-    });
+    const addD = (list, label, val) => {
+        stats.details[list].push(`§f${label}: ${val}`);
+    };
 
-    // ATK
-    let atk = level + (str * 0.5) + equipStats.atk;
-    addDetail('atk', 'レベル', level);
-    addDetail('atk', '筋力(Str)', str * 0.5);
-    addDetail('atk', '武器', equipStats.atk);
-    if (player.hasTag("talent:brute_force")) { atk += 2; addDetail('atk', 'Brute Force', 2); }
-    if (player.hasTag("talent:glass_cannon")) { atk *= 1.5; addDetail('atk', 'Glass Cannon', 1.5, false, true); }
-    if (player.hasTag("talent:sharp_blade")) { atk *= 1.1; addDetail('atk', 'Sharp Blade', 1.1, false, true); }
-    const hpRatio = (p("deepcraft:hp") / p("deepcraft:max_hp")) || 1;
-    if (player.hasTag("talent:berserker") && hpRatio < 0.3) { atk *= 1.5; addDetail('atk', 'Berserker', 1.5, false, true); }
-    if (player.hasTag("talent:assassin") && player.isSneaking) { atk *= 2.0; addDetail('atk', 'Assassin', 2.0, false, true); }
-    stats.atk = Math.floor(atk);
-
-    // Crit
-    const agiCrit = agi * 0.001, intCrit = int * 0.0005;
-    stats.critChance += agiCrit + intCrit;
-    addDetail('critChance', '敏捷(Agi)', agiCrit, true);
-    addDetail('critChance', '知性(Int)', intCrit, true);
-    if (player.hasTag("talent:eagle_eye")) { stats.critChance += 0.1; addDetail('critChance', 'Eagle Eye', 0.1, true); }
-    const strCritMult = str * 0.005;
-    stats.critMult += strCritMult;
-    addDetail('critMult', '筋力(Str)', strCritMult, true);
-
-    // DEF
-    let def = defStat + (fort * CONFIG.COMBAT.DEFENSE_CONSTANT) + equipStats.def;
-    addDetail('def', '防御(Def)', defStat);
-    addDetail('def', '不屈(Fort)', fort * CONFIG.COMBAT.DEFENSE_CONSTANT);
-    addDetail('def', '防具', equipStats.def);
-    if (player.hasTag("talent:tough_skin")) { def += 2; addDetail('def', 'Tough Skin', 2); }
-    if (player.hasTag("talent:iron_wall")) { def += 5; addDetail('def', 'Iron Wall', 5); }
-    if (player.hasTag("talent:last_stand") && hpRatio < 0.3) { def *= 1.5; addDetail('def', 'Last Stand', 1.5, false, true); }
-    stats.def = Math.floor(def);
-
-    // Ether
-    const intEther = int * CONFIG.ETHER_PER_INT;
-    stats.maxEther += intEther;
-    addDetail('ether', '知性(Int)', intEther);
-    const willRegen = will * CONFIG.ETHER_REGEN_PER_WILL;
-    stats.etherRegen += willRegen;
-    addDetail('regen', '意志(Will)', willRegen);
-
-    // HP
-    let hp = 20 + (fort * 2);
-    if (player.hasTag("talent:vitality_1")) hp += 4;
-    if (player.hasTag("talent:vitality_2")) hp += 10;
-    if (player.hasTag("talent:glass_cannon")) hp = Math.floor(hp * 0.5);
+    // --- 1. HP ---
+    let hp = 255 + (level * 30) + (fort * 15);
+    addD('hp', 'Base+Lv', 255 + level * 30);
+    addD('hp', 'Fortitude', `+${fort * 15}`);
+    if (player.hasTag("talent:vitality_1")) { hp += 100; addD('hp', 'Vitality I', '+100'); }
+    if (player.hasTag("talent:vitality_2")) { hp += 200; addD('hp', 'Vitality II', '+200'); }
+    if (player.hasTag("talent:glass_cannon")) { hp = Math.floor(hp * 0.6); addD('hp', 'Glass Cannon', 'x0.6'); }
     stats.maxHP = Math.floor(hp);
 
-    // Speed
-    let speedBonus = (Math.floor(agi * 0.2) / 100);
-    addDetail('speed', '敏捷(Agi)', speedBonus, true);
-    let speedMult = 1.0 + speedBonus;
-    if (player.hasTag("talent:swift_1")) { speedMult += 0.05; addDetail('speed', 'Swiftness', 0.05, true); }
-    if (player.hasTag("talent:godspeed")) { speedMult += 0.15; addDetail('speed', 'Godspeed', 0.15, true); }
-    if (player.hasTag("debuff:heavy_armor")) { speedMult -= 0.1; addDetail('speed', '重量過多', -0.1, true); }
-    stats.speed = speedMult;
+    // --- 2. 装備 ---
+    const equip = player.getComponent("equippable");
+    const mainHandItem = equip ? equip.getEquipmentSlot(EquipmentSlot.Mainhand).getItem() : undefined;
+    const equipStats = getEquipmentStats(mainHandItem);
+    
+    let equipDef = 0;
+    if (equip) {
+        [EquipmentSlot.Head, EquipmentSlot.Chest, EquipmentSlot.Legs, EquipmentSlot.Feet, EquipmentSlot.Offhand].forEach(slot => {
+            equipDef += getEquipmentStats(equip.getEquipmentSlot(slot).getItem()).def;
+        });
+    }
 
-    // Evasion
-    const agiEvasion = agi * 0.001;
-    stats.evasion += agiEvasion;
-    addDetail('evasion', '敏捷(Agi)', agiEvasion, true);
-    if (player.hasTag("talent:evasion")) { stats.evasion += 0.15; addDetail('evasion', 'Evasion', 0.15, true); }
+    // --- 3. 攻撃力 ---
+    // ★修正: Str補正を 2.0 -> 0.2 に変更 (微量補正)
+    let atk = equipStats.atk + (level * 3) + (str * 0.2);
+    
+    addD('atk', 'Weapon', equipStats.atk);
+    addD('atk', 'Level Bonus', `+${level * 3}`);
+    addD('atk', 'Strength', `+${Math.floor(str * 0.2)}`);
+
+    if (medium > 0) {
+        const bonus = 1.0 + (medium * 0.005);
+        atk *= bonus;
+        addD('atk', 'Medium Mastery', `x${bonus.toFixed(2)}`);
+    }
+
+    if (player.hasTag("talent:brute_force")) { atk += 15; addD('atk', 'Brute Force', '+15'); }
+    if (player.hasTag("talent:glass_cannon")) { atk *= 1.3; addD('atk', 'Glass Cannon', 'x1.3'); }
+
+    stats.atk = Math.floor(atk);
+
+    // スケーリング (武器ごとの補正)
+    if (mainHandItem) {
+        const weaponId = getItemId(mainHandItem);
+        if (weaponId && EQUIPMENT_POOL[weaponId]) {
+            const def = EQUIPMENT_POOL[weaponId];
+            if (def.scaling) {
+                for (const [statKey, scaleVal] of Object.entries(def.scaling)) {
+                    const statVal = p(`deepcraft:${statKey}`);
+                    if (statVal > 0) {
+                        // 整数スケーリング: (ステータス * Scale) / 10
+                        const bonus = statVal * (scaleVal / 10);
+                        addD('atk', `Scale (${CONFIG.STATS[statKey]})`, `+${bonus.toFixed(1)}`);
+                        stats.atk += bonus; 
+                    }
+                }
+            }
+        }
+    }
+    stats.atk = Math.floor(stats.atk);
+
+    // --- 4. 防御スコア ---
+    let defScore = equipDef + (level * 4) + (fort * 2);
+    addD('def', 'Armor', equipDef);
+    addD('def', 'Level Bonus', `+${level * 4}`);
+    addD('def', 'Fortitude', `+${fort * 2}`);
+    if (oldDef > 0) { defScore += oldDef; addD('def', 'Old Defense', `+${oldDef}`); }
+    if (player.hasTag("talent:iron_wall")) { defScore += 30; addD('def', 'Iron Wall', '+30'); }
+    stats.def = Math.floor(defScore);
+
+    // --- 5. クリティカル ---
+    let crit = CONFIG.COMBAT.BASE_CRIT_CHANCE + (light * 0.003) + (agi * 0.001);
+    addD('critChance', 'Base', `${(CONFIG.COMBAT.BASE_CRIT_CHANCE * 100).toFixed(1)}%`);
+    if (light > 0) addD('critChance', 'Light Mastery', `+${(light * 0.3).toFixed(1)}%`);
+    if (agi > 0) addD('critChance', 'Agility', `+${(agi * 0.1).toFixed(1)}%`);
+    if (player.hasTag("talent:eagle_eye")) { crit += 0.15; addD('critChance', 'Eagle Eye', '+15.0%'); }
+    stats.critChance = Math.min(crit, 1.0);
+    addD('critMult', 'Base', `x${stats.critMult.toFixed(1)}`);
+
+    stats.penetration = Math.min(heavy * 0.005, 0.6);
+    if (heavy > 0) addD('other', 'Penetration (Heavy)', `${(stats.penetration * 100).toFixed(1)}%`);
+    
+    stats.maxEther += (int * 5);
+    addD('ether', 'Base', CONFIG.ETHER_BASE);
+    addD('ether', 'Intelligence', `+${int * 5}`);
+
+    stats.magicPower = 1.0 + (int * 0.01);
+    if (int > 0) addD('other', 'Magic Power', `x${stats.magicPower.toFixed(2)}`);
+
+    const willRegen = will * CONFIG.ETHER_REGEN_PER_WILL;
+    stats.etherRegen += willRegen;
+    addD('regen', 'Base', CONFIG.ETHER_REGEN_BASE);
+    addD('regen', 'Willpower', `+${willRegen.toFixed(1)}`);
+
+    stats.magicResist = Math.min((will * 0.005), 0.5);
+    if (will > 0) addD('other', 'Magic Resist', `${(stats.magicResist * 100).toFixed(1)}%`);
+
+    // Speed / Evasion
+    stats.speed = 1.0 + (agi * 0.002);
+    addD('speed', 'Base', '100%');
+    if (agi > 0) addD('speed', 'Agility', `+${(agi * 0.2).toFixed(1)}%`);
+    if (player.hasTag("talent:swift_1")) { stats.speed += 0.05; addD('speed', 'Swift I', '+5%'); }
+    if (player.hasTag("talent:godspeed")) { stats.speed += 0.15; addD('speed', 'Godspeed', '+15%'); }
+    if (player.hasTag("debuff:heavy_armor")) { stats.speed -= 0.1; addD('speed', 'Heavy Armor', '-10%'); }
+
+    stats.evasion = Math.min(agi * 0.002, 0.3);
+    if (agi > 0) addD('evasion', 'Agility', `${(stats.evasion * 100).toFixed(1)}%`);
+    if (player.hasTag("talent:evasion")) { stats.evasion += 0.1; addD('evasion', 'Evasion', '+10%'); }
 }
 
 function calculateMobStats(mob, stats) {
     let maxHP = mob.getDynamicProperty("deepcraft:max_hp");
+    let atk = mob.getDynamicProperty("deepcraft:atk");
+
     if (maxHP === undefined) {
         const bossId = mob.getDynamicProperty("deepcraft:boss_id");
         if (bossId && MOB_POOL[bossId]) {
             maxHP = MOB_POOL[bossId].health;
+            atk = 50; 
         } else {
             const hpComp = mob.getComponent("minecraft:health");
             maxHP = hpComp ? hpComp.effectiveMax * 10 : 200;
+            atk = 40;
         }
         mob.setDynamicProperty("deepcraft:max_hp", maxHP);
         mob.setDynamicProperty("deepcraft:hp", maxHP);
+        mob.setDynamicProperty("deepcraft:atk", atk);
     }
-    stats.maxHP = maxHP;
-    stats.atk = 50; // Default mob attack
-    stats.def = 0;  // Default mob defense
+    stats.maxHP = maxHP || 200;
+    stats.atk = atk || 40;
+    stats.def = 50; 
 }
 
 export function getEquipmentStats(itemStack) {
     if (!itemStack) return { atk: 0, def: 0 };
-    const id = itemStack.getDynamicProperty("deepcraft:item_id");
+    const id = getItemId(itemStack);
     if (!id) return { atk: 0, def: 0 };
     const def = EQUIPMENT_POOL[id];
     if (!def || !def.stats) return { atk: 0, def: 0 };
