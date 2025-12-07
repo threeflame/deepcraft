@@ -1,0 +1,23 @@
+{
+  "format_version": "1.10.0",
+  "animation_controllers": {
+    "controller.animation.deepcraft.swing_detect": {
+      "initial_state": "default",
+      "states": {
+        "default": {
+          "transitions": [
+            { "swinging": "variable.attack_time > 0.0" }
+          ]
+        },
+        "swinging": {
+          "on_entry": [
+            "/scriptevent deepcraft:swing"
+          ],
+          "transitions": [
+            { "default": "variable.attack_time <= 0.0" }
+          ]
+        }
+      }
+    }
+  }
+}

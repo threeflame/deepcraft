@@ -4,7 +4,7 @@ import { system } from "@minecraft/server";
 import { openMenuHub, openQuestMenu } from "../ui/ui_manager.js";
 import { processCommandSell } from "../data/market.js";
 import { calculateEntityStats } from "../player/stat_calculator.js";
-
+import { openDebugMenu } from "./debug_menu.js"; // ★変更: デバッグメニューをインポート
 
 system.beforeEvents.startup.subscribe(ev => {
     const registry = ev.customCommandRegistry;
@@ -36,11 +36,12 @@ system.beforeEvents.startup.subscribe(ev => {
     }, (origin, args) => {
         const player = origin.sourceEntity;
         if (player) {
+            const priceInput = args.price;
             system.run(() => {
-                if (args.price === undefined) {
+                if (priceInput === undefined) {
                     player.sendMessage("§c使用法: /deepcraft:sell <価格>");
                 } else {
-                    processCommandSell(player, args.price);
+                    processCommandSell(player, priceInput);
                 }
             });
         }
@@ -70,17 +71,32 @@ system.beforeEvents.startup.subscribe(ev => {
         if (player) system.run(() => openQuestMenu(player));
     });
 
-    // 5. /deepcraft:csummon <name> (Admin Only)
+    // 5. /deepcraft:debug (Admin Only)
+    // ★変更: これ一つで全てのデバッグ機能にアクセスする
     registry.registerCommand({
-        name: "deepcraft:csummon",
-        description: "カスタムMobを召喚する (Admin限定)",
+        name: "deepcraft:debug",
+        description: "開発者用メニューを開く (Admin限定)",
         permissionLevel: Minecraft.CommandPermissionLevel.Any,
-        mandatoryParameters: [
-            {
-                name: "name", // ★変更: id -> name
-                type: Minecraft.CustomCommandParamType.String
+        mandatoryParameters: [],
+        optionalParameters: []
+    }, (origin, args) => {
+        const player = origin.sourceEntity;
+        if (player) {
+            if (!player.hasTag("admin")) {
+                player.sendMessage("§c権限がありません。(/tag @s add admin)");
+                return;
             }
-        ],
+            system.run(() => openDebugMenu(player));
+        }
+    });
+
+    // 6. /deepcraft:vanish (Admin Only)
+    // これは便利なのでショートカットとして残す
+    registry.registerCommand({
+        name: "deepcraft:vanish",
+        description: "運営用: 姿を隠す/現す (スペクテイター切替)",
+        permissionLevel: Minecraft.CommandPermissionLevel.Any,
+        mandatoryParameters: [],
         optionalParameters: []
     }, (origin, args) => {
         const player = origin.sourceEntity;
@@ -89,46 +105,19 @@ system.beforeEvents.startup.subscribe(ev => {
                 player.sendMessage("§c権限がありません。");
                 return;
             }
-            // デバッグ用: 引数が来ているか確認
-            // player.sendMessage(`§7Debug Args: ${JSON.stringify(args)}`);
             
-            system.run(async () => {
-                const { summonBoss } = await import("../systems/item_handler.js");
-                summonBoss(player, args.name); // ★変更: args.name
-            });
-        }
-    });
-
-    // 6. /deepcraft:cgive <name> [sellable] (Admin Only)
-    registry.registerCommand({
-        name: "deepcraft:cgive",
-        description: "カスタムアイテムを入手する (Admin限定)",
-        permissionLevel: Minecraft.CommandPermissionLevel.Any,
-        mandatoryParameters: [
-            {
-                name: "name", // ★変更: id -> name
-                type: Minecraft.CustomCommandParamType.String
-            }
-        ],
-        optionalParameters: [
-            {
-                name: "sellable",
-                type: Minecraft.CustomCommandParamType.Boolean
-            }
-        ]
-    }, (origin, args) => {
-        const player = origin.sourceEntity;
-        if (player) {
-            if (!player.hasTag("admin")) {
-                player.sendMessage("§c権限がありません。");
-                return;
-            }
-            // デバッグ用: 引数が来ているか確認
-            // player.sendMessage(`§7Debug Args: ${JSON.stringify(args)}`);
-
-            system.run(async () => {
-                const { giveCustomItem } = await import("../systems/item_handler.js");
-                giveCustomItem(player, args.name, args.sellable || false); // ★変更: args.name
+            system.run(() => {
+                if (player.hasTag("deepcraft:vanished")) {
+                    player.runCommandAsync("gamemode creative @s");
+                    player.removeTag("deepcraft:vanished");
+                    player.sendMessage("§a[Admin] 姿を現しました。(Visible Mode)");
+                    player.playSound("random.pop");
+                } else {
+                    player.runCommandAsync("gamemode spectator @s");
+                    player.addTag("deepcraft:vanished");
+                    player.sendMessage("§c[Admin] 姿を消しました。(Vanish Mode)");
+                    player.playSound("random.fizz");
+                }
             });
         }
     });
@@ -139,6 +128,7 @@ function showPlayerStats(player) {
     const level = player.getDynamicProperty("deepcraft:level") || 1;
     const xp = player.getDynamicProperty("deepcraft:xp") || 0;
     const gold = player.getDynamicProperty("deepcraft:gold") || 0;
+    const deaths = player.getDynamicProperty("deepcraft:death_count") || 0;
 
     let msg = `§l§a--- ${player.name}'s Stats ---§r\n`;
     msg += `§eLv.${level}  §fXP: ${xp}\n`;

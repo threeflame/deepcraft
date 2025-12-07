@@ -13,7 +13,7 @@ import { createParty, acceptInvite, inviteToParty, leaveParty, getPartyInfo } fr
 import { openDebugGiveMenu, openDebugSummonMenu } from "../systems/debug_menu.js";
 
 export function openMenuHub(player) {
-    const form = new ChestFormData("small");
+    const form = new ChestFormData("small", false);
     form.title("§lメニューハブ");
     const pendingDraws = player.getDynamicProperty("deepcraft:pending_card_draws") || 0;
     const gold = player.getDynamicProperty("deepcraft:gold") || 0;
@@ -21,7 +21,8 @@ export function openMenuHub(player) {
     // --- 1段目 (0-8): キャラクター関連 ---
     // 中央揃え: 2, 4, 6
     if (pendingDraws > 0) {
-        form.button(2, "§6§l🎁 タレントを引く", ["§r§e未受取のタレントがあります！", "§cクリックで抽選"], "minecraft:nether_star", pendingDraws, 0, true);
+        // 絵文字削除
+        form.button(4, `§6§l[DRAW TALENT] (${pendingDraws})`, ["§r§e未受取のタレントがあります", "§cクリックで抽選"], "minecraft:nether_star", pendingDraws, 0, true);
     } else {
         form.button(2, "§a§lステータス強化", ["§r§7能力値を管理する"], "minecraft:experience_bottle");
     }
@@ -87,7 +88,7 @@ export function openMenuHub(player) {
 
 function openDetailStats(player) {
     const stats = calculateEntityStats(player);
-    const form = new ChestFormData("small");
+    const form = new ChestFormData("small", false);
     form.title("§lキャラクター詳細");
 
     const formatDesc = (title, details) => [`§7${title}`, "§8----------------", ...details, "§8----------------", "§e[クリックでチャットに出力]"];
@@ -108,6 +109,13 @@ function openDetailStats(player) {
     form.button(14, `§3§lエーテル: ${stats.maxEther}`, formatDesc(`自然回復: ${stats.etherRegen.toFixed(1)}/秒`, [...stats.details.ether, ...stats.details.regen]), "minecraft:phantom_membrane");
     form.button(15, `§f§l速度: ${(stats.speed * 100).toFixed(0)}%`, formatDesc("移動速度", stats.details.speed), "minecraft:feather");
     form.button(16, `§a§l回避率: ${(stats.evasion * 100).toFixed(1)}%`, formatDesc("ダメージ無効化率", stats.details.evasion), "minecraft:sugar");
+    const deaths = player.getDynamicProperty("deepcraft:death_count") || 0;
+    const maxDeaths = CONFIG.MAX_DEATH_COUNT;
+    let deathColor = "§a";
+    if (deaths >= maxDeaths - 1) deathColor = "§c"; 
+    else if (deaths > 0) deathColor = "§e"; 
+
+    form.button(22, `§lLives: ${deathColor}${maxDeaths - deaths} / ${maxDeaths}`, ["§r現在の死亡カウント", `§7${deaths}回 死亡済み`, "§c3回でVoid行き"], "minecraft:skeleton_skull");
 
     form.button(25, "§c§l戻る", ["§rメニューへ戻る"], "minecraft:barrier");
     
@@ -143,7 +151,7 @@ function openDetailStats(player) {
 }
 
 function openProfileMenu(player) {
-    const form = new ChestFormData("small");
+    const form = new ChestFormData("small", false);
     form.title("§lプロファイル管理");
     const activeSlot = player.getDynamicProperty("deepcraft:active_profile") || 1;
     const slotPositions = { 1: 11, 2: 13, 3: 15 };
@@ -294,8 +302,8 @@ function processLevelUp(player) {
     player.setDynamicProperty("deepcraft:level", currentLvl + 1);
     player.setDynamicProperty("deepcraft:invested_points", 0);
     let pending = player.getDynamicProperty("deepcraft:pending_card_draws") || 0;
-    player.setDynamicProperty("deepcraft:pending_card_draws", pending + 1);
-    player.sendMessage(`§6§lレベルアップ！ §r(Lv.${currentLvl + 1})`);
+    player.setDynamicProperty("deepcraft:pending_card_draws", pending + 3);
+    player.sendMessage(`§6[LEVEL UP] Lv.${currentLvl + 1} になりました！`);
     player.playSound("ui.toast.challenge_complete");
     system.runTimeout(() => openMenuHub(player), 20);
 }

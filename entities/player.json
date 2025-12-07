@@ -7,12 +7,13 @@
       "is_summonable": false,
       "is_experimental": false,
       "scripts": {
-        "animate": [ "tag_attacking", "tag_fire", "tag_draw_bow" ]
+        "animate": [ "tag_attacking", "tag_fire", "tag_draw_bow", "swing_detect" ]
       },
       "animations": {
         "tag_attacking": "controller.animation.tag_attacking",
         "tag_fire": "controller.animation.tag_fire",
-        "tag_draw_bow": "controller.animation.tag_draw_bow"
+        "tag_draw_bow": "controller.animation.tag_draw_bow",
+        "swing_detect": "controller.animation.deepcraft.swing_detect"
       }
     },
     
@@ -23,6 +24,10 @@
         "minecraft:attack": { "damage": 1 },
         "minecraft:movement": { "value": 0.1 },
         "minecraft:knockback_resistance": { "max": 0.0 }
+      },
+
+      "deepcraft:knocked_state": {
+        "minecraft:knockback_resistance": { "max": 1.0 }
       },
  
       "knockback_resistance100": { "minecraft:knockback_resistance": { "max": 1.0 } },
@@ -52,7 +57,28 @@
       "minecraft:breathable": { "total_supply": 15, "suffocate_time": -1 },
       "minecraft:nameable": { "always_show": true, "allow_name_tag_renaming": false },
       
-     
+      "minecraft:environment_sensor": {
+        "triggers": [
+          {
+            "filters": {
+              "all_of": [
+                { "test": "has_mob_effect", "subject": "self", "value": "bad_omen" },
+                { "test": "is_in_village", "subject": "self", "value": true }
+              ]
+            },
+            "event": "minecraft:trigger_raid"
+          },
+          {
+            "filters": { "test": "has_tag", "subject": "self", "value": "deepcraft:knocked" },
+            "event": "deepcraft:start_knockdown"
+          },
+          {
+            "filters": { "test": "has_tag", "subject": "self", "operator": "!=", "value": "deepcraft:knocked" },
+            "event": "deepcraft:stop_knockdown"
+          }
+        ]
+      },
+
       "minecraft:physics": { 
         "has_gravity": true,
         "has_collision": true,
@@ -62,7 +88,14 @@
     },
     
     "events": {
-      "reset": { "add": { "component_groups": [ "reset" ] } },
+      "reset": { 
+          "add": { "component_groups": [ "reset" ] },
+          "remove": { "component_groups": [ "deepcraft:knocked_state" ] }
+      },
+      
+      "deepcraft:start_knockdown": { "add": { "component_groups": [ "deepcraft:knocked_state" ] } },
+      "deepcraft:stop_knockdown": { "remove": { "component_groups": [ "deepcraft:knocked_state" ] } },
+
       "knockback_resistance100": { "add": { "component_groups": [ "knockback_resistance100" ] } },
       "knockback_resistance_reset": { "add": { "component_groups": [ "knockback_resistance_reset" ] } },
       "scale_reset": { "add": { "component_groups": [ "scale_reset" ] } }

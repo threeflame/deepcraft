@@ -33,7 +33,7 @@ export const EQUIPMENT_POOL = {
     "soldier_blade": {
         name: "§bSoldier Blade",
         lore: ["§7兵士の剣。", "§eATK: 25", "§cReq: Str 10"],
-        baseItem: "minecraft:iron_sword",
+        baseItem: "deepcraft:soldier_blade",
         stats: { atk: 25 },
         req: { strength: 10 },
         scaling: { medium: 5 }
@@ -165,7 +165,7 @@ export const EQUIPMENT_POOL = {
         baseItem: "minecraft:diamond_sword",
         stats: { atk: 60 },
         req: { intelligence: 50 },
-        scaling: { medium: 6, intelligence: 6 }
+        scaling: { medium: 8 } // 修正: Int依存を廃止しMedium Masteryへ
     },
     "titan_axe": {
         name: "§6§lTitan Axe",
@@ -192,7 +192,7 @@ export const EQUIPMENT_POOL = {
         stats: { atk: 20 },
         req: { intelligence: 30, charisma: 20 },
         skillId: "raise_dead",
-        scaling: { intelligence: 5, charisma: 5 }
+        scaling: { light: 8 } // 修正: Int/Cha依存を廃止しLight Masteryへ
     },
 
     // ==========================================
@@ -201,7 +201,7 @@ export const EQUIPMENT_POOL = {
     "testing_wand": { name: "§6Testing Wand", lore: [], baseItem: "minecraft:breeze_rod", stats: { atk: 0 }, req: {}, skillId: "target_mob", scaling: {} },
     "testing_staff": { name: "§cTesting Staff", lore: [], baseItem: "minecraft:blaze_rod", stats: { atk: 0 }, req: {}, skillId: "target_player", scaling: {} },
     
-    // ★追加: 攻撃速度検証用
+    // 攻撃速度検証用
     "debug_fast_blade": {
         name: "§b§lGodspeed Dagger",
         lore: ["§7[DEBUG] 攻撃速度: 4 Tick (0.2s)"],
@@ -220,8 +220,6 @@ export const EQUIPMENT_POOL = {
     }
 };
 
-// ★追加: 攻撃速度データ (UI表示用)
-// 値が大きいほどゲージの溜まりが遅い
 export const EQUIPMENT_STATS = {
     // Vanilla
     "minecraft:wooden_sword": { speed: 12 },
@@ -247,6 +245,6 @@ export const EQUIPMENT_STATS = {
     "necromancer_staff": { speed: 15 },
 
     // Debug
-    "debug_fast_blade": { speed: 4 },   // 激早
-    "debug_slow_hammer": { speed: 60 }  // 激おそ
+    "debug_fast_blade": { speed: 4 },
+    "debug_slow_hammer": { speed: 60 }
 };

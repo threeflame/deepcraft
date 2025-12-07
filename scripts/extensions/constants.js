@@ -9,16 +9,36 @@ export const inventory_enabled = true;
  * ...or reference a texture path, which removes enchant glint and 3d block render capability.
  */
 export const custom_content = {
-	/*
-	'custom:block': {
-		 texture: 'minecraft:gold_block',
-		 type: 'block'
-	},
-	'custom:item': {
-		 texture: 'textures/items/paper',
-		 type: 'item'
-	},
-	*/
+
+     'deepcraft:wooden_sword': {
+        texture: 'textures/items/wooden_sword', 
+        type: 'item'
+    },
+	     'deepcraft:stone_sword': {
+        texture: 'textures/items/stone_sword', 
+        type: 'item'
+    },
+	     'deepcraft:iron_sword': {
+        texture: 'textures/items/iron_sword', 
+        type: 'item'
+    },
+	     'deepcraft:golden_sword': {
+        texture: 'textures/items/golden_sword', 
+        type: 'item'
+    },
+	     'deepcraft:copper_sword': {
+        texture: 'textures/items/copper_sword', 
+        type: 'item'
+    },
+	     'deepcraft:diamond_sword': {
+        texture: 'textures/items/diamond_sword', 
+        type: 'item'
+    },
+		'deepcraft:netherite_sword': {
+        texture: 'textures/items/netherite_sword', 
+        type: 'item'
+    },
+
 };
 //Blocks are excluded from the count, as they do not shift vanilla IDs.
 export const number_of_custom_items = Object.values(custom_content).filter(v => v.type === 'item').length;

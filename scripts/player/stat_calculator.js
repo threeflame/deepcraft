@@ -51,8 +51,10 @@ function calculatePlayerStats(player, stats) {
     };
 
     // --- 1. HP ---
-    let hp = 255 + (level * 30) + (fort * 15);
-    addD('hp', 'Base+Lv', 255 + level * 30);
+    // ★修正: 基礎値を 255 -> 270 に変更
+    // 計算: 270 + (Lv1 * 30) + (Fort0 * 15) = 300
+    let hp = 270 + (level * 30) + (fort * 15);
+    addD('hp', 'Base+Lv', 270 + level * 30);
     addD('hp', 'Fortitude', `+${fort * 15}`);
     if (player.hasTag("talent:vitality_1")) { hp += 100; addD('hp', 'Vitality I', '+100'); }
     if (player.hasTag("talent:vitality_2")) { hp += 200; addD('hp', 'Vitality II', '+200'); }
@@ -72,7 +74,6 @@ function calculatePlayerStats(player, stats) {
     }
 
     // --- 3. 攻撃力 ---
-    // ★修正: Str補正を 2.0 -> 0.2 に変更 (微量補正)
     let atk = equipStats.atk + (level * 3) + (str * 0.2);
     
     addD('atk', 'Weapon', equipStats.atk);
@@ -90,7 +91,7 @@ function calculatePlayerStats(player, stats) {
 
     stats.atk = Math.floor(atk);
 
-    // スケーリング (武器ごとの補正)
+    // スケーリング
     if (mainHandItem) {
         const weaponId = getItemId(mainHandItem);
         if (weaponId && EQUIPMENT_POOL[weaponId]) {
@@ -99,7 +100,6 @@ function calculatePlayerStats(player, stats) {
                 for (const [statKey, scaleVal] of Object.entries(def.scaling)) {
                     const statVal = p(`deepcraft:${statKey}`);
                     if (statVal > 0) {
-                        // 整数スケーリング: (ステータス * Scale) / 10
                         const bonus = statVal * (scaleVal / 10);
                         addD('atk', `Scale (${CONFIG.STATS[statKey]})`, `+${bonus.toFixed(1)}`);
                         stats.atk += bonus; 
