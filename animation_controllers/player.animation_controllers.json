@@ -18,6 +18,32 @@
           ]
         }
       }
+    },
+    "controller.animation.deepcraft.use_detect": {
+      "initial_state": "default",
+      "states": {
+        "default": {
+          "transitions": [
+            { "using": "query.is_using_item" }
+          ]
+        },
+        "using": {
+          "on_entry": [
+            "/scriptevent deepcraft:use_start"
+          ],
+          "transitions": [
+            { "ending": "!query.is_using_item" }
+          ]
+        },
+        "ending": {
+          "on_entry": [
+            "/scriptevent deepcraft:use_end"
+          ],
+          "transitions": [
+            { "default": "1.0" }
+          ]
+        }
+      }
     }
   }
 }

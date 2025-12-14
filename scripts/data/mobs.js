@@ -90,7 +90,8 @@ export const MOB_POOL = {
                 msg: "§4§lCHARGE!",
                 action: (entity) => {
                     const view = entity.getViewDirection();
-                    entity.applyKnockback(view.x, view.z, 5.0, 0.0); 
+                    // 新API: applyKnockback(Vector3, horizontalStrength)
+                    entity.applyKnockback({ x: view.x, y: 0.0, z: view.z }, 5.0); 
                     entity.addEffect("speed", 60, { amplifier: 4 });
                     entity.dimension.playSound("mob.ravager.roar", entity.location);
                 }
@@ -106,7 +107,8 @@ export const MOB_POOL = {
                     const players = entity.dimension.getPlayers({ location: entity.location, maxDistance: 5 });
                     players.forEach(p => {
                         p.applyDamage(10);
-                        p.applyKnockback(0, 0, 3, 0.5);
+                        // 新API: applyKnockback(Vector3, horizontalStrength)
+                        p.applyKnockback({ x: 0, y: 0.5, z: 0 }, 3);
                     });
                 }
             }

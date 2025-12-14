@@ -6,11 +6,62 @@ import { CONFIG } from "../config.js";
 import { CARD_POOL } from "../data/talents.js";
 import { QUEST_POOL } from "../data/quests.js";
 import { openMarketMenu } from "../data/market.js";
-import { addXP, getXpCostForLevel, loadProfile, resetCurrentProfile, saveProfile, applyStatsToEntity } from "../player/player_manager.js";
+import { addXP, getXpCostForLevel, loadProfile, saveProfile, applyStatsToEntity } from "../player/player_manager.js";
 import { calculateEntityStats } from "../player/stat_calculator.js";
 import { claimQuestReward } from "../player/quest_manager.js"; 
 import { createParty, acceptInvite, inviteToParty, leaveParty, getPartyInfo } from "../systems/party_manager.js";
-import { openDebugGiveMenu, openDebugSummonMenu } from "../systems/debug_menu.js";
+import { burstParticles } from "../utils.js";
+import { SKILL_POOL } from "../data/skills.js";
+
+function getGrimoire(player) {
+    const raw = player.getDynamicProperty("deepcraft:grimoire");
+    if (typeof raw === "string" && raw.length > 0) {
+        try {
+            const parsed = JSON.parse(raw);
+            if (parsed && typeof parsed === "object") return parsed;
+        } catch (_) {}
+    }
+    const defaults = {
+        "R-R-R": "spell:test_spell_01",
+        "R-R-L": "spell:test_spell_02",
+        "R-L-R": "spell:test_spell_03",
+        "R-L-L": "spell:test_spell_04",
+        "Shift+R-R-R": "spell:test_spell_05",
+        "Shift+R-R-L": "spell:test_spell_06",
+        "Shift+R-L-R": "spell:test_spell_07",
+        "Shift+R-L-L": "spell:test_spell_08"
+    };
+    try { player.setDynamicProperty("deepcraft:grimoire", JSON.stringify(defaults)); } catch (_) {}
+    return defaults;
+}
+
+function setGrimoire(player, grimoire) {
+    try { player.setDynamicProperty("deepcraft:grimoire", JSON.stringify(grimoire ?? {})); } catch (_) {}
+}
+
+function normalizeActionId(actionId) {
+    if (typeof actionId !== "string") return undefined;
+    if (actionId.startsWith("spell:")) return actionId.slice("spell:".length);
+    if (actionId.startsWith("skill:")) return actionId.slice("skill:".length);
+    return actionId;
+}
+
+function actionDisplayName(actionId) {
+    const normalized = normalizeActionId(actionId);
+    if (!normalized) return "(未設定)";
+    const skill = SKILL_POOL[normalized];
+    if (!skill) return normalized;
+    return skill.name ?? normalized;
+}
+
+function listComboBases() {
+    return [
+        "R-R-R",
+        "R-R-L",
+        "R-L-R",
+        "R-L-L"
+    ];
+}
 
 export function openMenuHub(player) {
     const form = new ChestFormData("small", false);
@@ -19,46 +70,46 @@ export function openMenuHub(player) {
     const gold = player.getDynamicProperty("deepcraft:gold") || 0;
 
     // --- 1段目 (0-8): キャラクター関連 ---
-    // 中央揃え: 2, 4, 6
+    // タレント抽選がある場合はステータス強化を無効化
     if (pendingDraws > 0) {
-        // 絵文字削除
-        form.button(4, `§6§l[DRAW TALENT] (${pendingDraws})`, ["§r§e未受取のタレントがあります", "§cクリックで抽選"], "minecraft:nether_star", pendingDraws, 0, true);
+        form.button(0, `§6§lタレント抽選 (${pendingDraws})`, ["§r§e未受取のタレントがあります", "§cクリックで抽選"], "textures/items/nether_star", pendingDraws, 0, true);
+        form.button(2, "§8§lステータス強化", ["§r§cタレント抽選を先に行ってください"], "textures/items/experience_bottle");
     } else {
-        form.button(2, "§a§lステータス強化", ["§r§7能力値を管理する"], "minecraft:experience_bottle");
+        form.button(2, "§a§lステータス強化", ["§r§7能力値を管理する"], "textures/items/experience_bottle");
     }
-    form.button(4, "§d§l📊 詳細ステータス", ["§r§7攻撃力・防御力などを確認"], "minecraft:spyglass");
-    form.button(6, "§b§lタレント確認", ["§r§7所有タレントを見る"], "minecraft:enchanted_book");
-
-    // デバッグ: XP (右上)
-    form.button(8, "§e§lデバッグ: +XP", ["§r+10000XP"], "minecraft:emerald");
-
+    
+    form.button(4, "§d§l📊 詳細ステータス", ["§r§7攻撃力・防御力などを確認"], "textures/items/spyglass");
+    form.button(6, "§b§lタレント確認", ["§r§7所有タレントを見る"], "textures/items/book_enchanted");
 
     // --- 2段目 (9-17): ワールド・ソーシャル ---
     // 中央揃え: 11, 13, 15
-    form.button(11, "§6§lクエストログ", ["§r§7進行中のクエスト"], "minecraft:writable_book");
-    form.button(13, `§6§lマーケット (${gold} G)`, ["§r§eプレイヤー間取引所"], "minecraft:gold_ingot");
-    form.button(15, "§a§lパーティ", ["§r§7パーティの作成や招待"], "minecraft:totem_of_undying");
-
-    // デバッグ: Gold (右中)
-    form.button(17, "§e§lデバッグ: +1000 G", ["§r資金を追加"], "minecraft:sunflower");
-
+    form.button(11, "§6§lクエストログ", ["§r§7進行中のクエスト"], "textures/items/book_writable");
+    form.button(13, `§6§lマーケット (${gold} G)`, ["§r§eプレイヤー間取引所"], "textures/items/gold_ingot");
+    form.button(15, "§a§lパーティ", ["§r§7パーティの作成や招待"], "textures/items/totem");
 
     // --- 3段目 (18-26): システム ---
     // 中央: 22
-    form.button(22, `§d§lプロファイル`, ["§r§7ビルド切り替え"], "minecraft:name_tag");
+    form.button(22, `§d§lプロファイル`, ["§r§7ビルド切り替え"], "textures/items/name_tag");
 
-    // ★追加: デバッグ機能 (管理者のみ表示する制御も可能だが今回は全員表示)
-    form.button(24, "§c§lデバッグ: アイテム入手", ["§r§7カスタム装備を入手"], "minecraft:chest");
-    form.button(25, "§4§lデバッグ: Mob召喚", ["§r§7ボスやダミーを召喚"], "minecraft:spawner");
-    
-    // デバッグ: リセット (右下)
-    form.button(26, "§c§lデバッグ: リセット", ["§r§cプロファイルをリセット"], "minecraft:barrier");
+    // グリモワール設定
+    form.button(20, "§5§lグリモワール設定", ["§r§7コンボに魔法を割り当てる", "§8通常/Shiftの両方を設定できます"], "textures/items/book_enchanted");
 
     form.show(player).then(res => {
         if (res.canceled) return;
+        const pendingDrawsNow = player.getDynamicProperty("deepcraft:pending_card_draws") || 0;
         const actions = {
             // Row 1
-            2: () => pendingDraws > 0 ? openCardSelection(player) : openStatusMenu(player),
+            0: () => pendingDrawsNow > 0 ? openCardSelection(player) : openMenuHub(player), // タレント抽選
+            2: () => {
+                // タレント抽選がある場合はステータス強化をブロック
+                if (pendingDrawsNow > 0) {
+                    player.playSound("note.bass", { volume: 0.3 });
+                    player.sendMessage("§8» §cタレント抽選を先に行ってください。");
+                    openMenuHub(player);
+                } else {
+                    openStatusMenu(player);
+                }
+            },
             4: () => openDetailStats(player),
             6: () => openTalentViewer(player),
             
@@ -69,20 +120,138 @@ export function openMenuHub(player) {
             
             // Row 3
             22: () => openProfileMenu(player),
-
-            // Debug Column
-            8: () => { addXP(player, 10000); openMenuHub(player); },
-            17: () => {
-                const current = player.getDynamicProperty("deepcraft:gold") || 0;
-                player.setDynamicProperty("deepcraft:gold", current + 1000);
-                player.playSound("random.orb");
-                openMenuHub(player);
-            },
-            24: () => openDebugGiveMenu(player),   // ★追加
-            25: () => openDebugSummonMenu(player), // ★追加
-            26: () => { resetCurrentProfile(player); openMenuHub(player); }
+            20: () => openGrimoireMenu(player)
         };
         actions[res.selection]?.();
+    });
+}
+
+function openGrimoireMenu(player) {
+    const grimoire = getGrimoire(player);
+
+    const form = new ChestFormData("small", false);
+    form.title("§lグリモワール");
+
+    const combos = listComboBases();
+    const normalSlots = [0, 1, 2, 3];
+    const shiftSlots = [9, 10, 11, 12];
+
+    for (let i = 0; i < combos.length; i++) {
+        const base = combos[i];
+
+        const normalKey = base;
+        const normalAssigned = grimoire[normalKey];
+        const normalDisplay = actionDisplayName(normalAssigned);
+        form.button(normalSlots[i], `§d§l${base}`, [
+            `§7現在: ${normalDisplay}`,
+            "§eクリックで変更"
+        ], "textures/items/book_writable");
+
+        const shiftKey = `Shift+${base}`;
+        const shiftAssigned = grimoire[shiftKey];
+        const shiftDisplay = actionDisplayName(shiftAssigned);
+        form.button(shiftSlots[i], `§e§lShift+${base}`, [
+            `§7現在: ${shiftDisplay}`,
+            "§eクリックで変更"
+        ], "textures/items/book_writable");
+    }
+
+    form.button(26, "§c§l戻る", ["§rメニューハブへ戻る"], "textures/items/barrier");
+
+    form.show(player).then(res => {
+        if (res.canceled) return;
+        if (res.selection === 26) {
+            system.runTimeout(() => openMenuHub(player), 10);
+            return;
+        }
+
+        const idxNormal = normalSlots.indexOf(res.selection);
+        if (idxNormal >= 0) {
+            openGrimoireAssignMenu(player, combos[idxNormal]);
+            return;
+        }
+
+        const idxShift = shiftSlots.indexOf(res.selection);
+        if (idxShift >= 0) {
+            openGrimoireAssignMenu(player, `Shift+${combos[idxShift]}`);
+            return;
+        }
+
+        system.runTimeout(() => openGrimoireMenu(player), 10);
+    });
+}
+
+function openGrimoireAssignMenu(player, key) {
+    const grimoire = getGrimoire(player);
+    const current = grimoire[key];
+    const currentNorm = normalizeActionId(current);
+
+    // 全スキルから所持しているものだけを表示
+    const allSkillIds = Object.keys(SKILL_POOL);
+    const ownedSpellIds = allSkillIds.filter(id => player.hasTag(`spell:${id}`));
+
+    const form = new ChestFormData("large", false);
+    form.title(key.startsWith("Shift+") ? "§lグリモワール設定 (Shift)" : "§lグリモワール設定");
+
+    // ヘッダ情報
+    form.button(4, `§d§l${key}`, [
+        `§7現在: ${actionDisplayName(current)}`,
+        ownedSpellIds.length ? `§7所持魔法: §b${ownedSpellIds.length}` : "§c所持している魔法がありません"
+    ], "textures/items/book_enchanted");
+
+    // 未設定
+    form.button(8, "§7未設定にする", ["§8クリックで解除"], "textures/items/barrier");
+
+    // 候補（10個）を並べる
+    const slots = [
+        9, 10, 11, 12, 13,
+        18, 19, 20, 21, 22
+    ];
+
+    for (let i = 0; i < ownedSpellIds.length && i < slots.length; i++) {
+        const id = ownedSpellIds[i];
+        const name = SKILL_POOL[id]?.name ?? id;
+        const isCurrent = currentNorm === id;
+        form.button(slots[i], isCurrent ? `§a§l${name}` : `${name}`, [
+            isCurrent ? "§a現在の割り当て" : "§eクリックで割り当て",
+            `§8ID: ${id}`
+        ], "textures/items/book_writable", 1, 0, isCurrent);
+    }
+
+    form.button(53, "§c§l戻る", ["§rグリモワールへ戻る"], "textures/items/barrier");
+
+    form.show(player).then(res => {
+        if (res.canceled) {
+            system.runTimeout(() => openGrimoireMenu(player), 10);
+            return;
+        }
+
+        if (res.selection === 53) {
+            system.runTimeout(() => openGrimoireMenu(player), 10);
+            return;
+        }
+
+        if (res.selection === 8) {
+            delete grimoire[key];
+            setGrimoire(player, grimoire);
+            player.playSound("random.orb", { volume: 0.3, pitch: 0.8 });
+            player.sendMessage(`§8» §7${key} を未設定にしました`);
+            system.runTimeout(() => openGrimoireMenu(player), 10);
+            return;
+        }
+
+        const idx = slots.indexOf(res.selection);
+        if (idx < 0 || idx >= ownedSpellIds.length) {
+            system.runTimeout(() => openGrimoireAssignMenu(player, key), 10);
+            return;
+        }
+
+        const selectedSkillId = ownedSpellIds[idx];
+        grimoire[key] = `spell:${selectedSkillId}`;
+        setGrimoire(player, grimoire);
+        player.playSound("random.orb", { volume: 0.35, pitch: 1.2 });
+        player.sendMessage(`§8» §a${key} → ${SKILL_POOL[selectedSkillId]?.name ?? selectedSkillId}`);
+        system.runTimeout(() => openGrimoireMenu(player), 10);
     });
 }
 
@@ -109,13 +278,31 @@ function openDetailStats(player) {
     form.button(14, `§3§lエーテル: ${stats.maxEther}`, formatDesc(`自然回復: ${stats.etherRegen.toFixed(1)}/秒`, [...stats.details.ether, ...stats.details.regen]), "minecraft:phantom_membrane");
     form.button(15, `§f§l速度: ${(stats.speed * 100).toFixed(0)}%`, formatDesc("移動速度", stats.details.speed), "minecraft:feather");
     form.button(16, `§a§l回避率: ${(stats.evasion * 100).toFixed(1)}%`, formatDesc("ダメージ無効化率", stats.details.evasion), "minecraft:sugar");
-    const deaths = player.getDynamicProperty("deepcraft:death_count") || 0;
-    const maxDeaths = CONFIG.MAX_DEATH_COUNT;
-    let deathColor = "§a";
-    if (deaths >= maxDeaths - 1) deathColor = "§c"; 
-    else if (deaths > 0) deathColor = "§e"; 
-
-    form.button(22, `§lLives: ${deathColor}${maxDeaths - deaths} / ${maxDeaths}`, ["§r現在の死亡カウント", `§7${deaths}回 死亡済み`, "§c3回でVoid行き"], "minecraft:skeleton_skull");
+    
+    // Void状態の判定
+    const isVoid = player.hasTag("deepcraft:void");
+    const deaths = player.getDynamicProperty("deepcraft:overworld_deaths") || 0;
+    const maxDeaths = CONFIG.VOID_MAX_DEATHS;
+    
+    if (isVoid) {
+        // Void状態
+        form.button(22, `§4§lVOID状態`, [
+            "§c§l⚠ 危険状態 ⚠",
+            "§r次に死亡するとプロファイルがリセットされます",
+            "§7Voidから脱出して生還せよ"
+        ], "minecraft:wither_skeleton_skull");
+    } else {
+        // 通常状態
+        let deathColor = "§a";
+        if (deaths >= maxDeaths - 1) deathColor = "§c"; 
+        else if (deaths > 0) deathColor = "§e"; 
+        
+        form.button(22, `§lライフ: ${deathColor}${maxDeaths - deaths} / ${maxDeaths}`, [
+            "§r現在の死亡カウント",
+            `§7${deaths}回 死亡済み`,
+            `§c${maxDeaths}回でVoid転送`
+        ], "minecraft:skeleton_skull");
+    }
 
     form.button(25, "§c§l戻る", ["§rメニューへ戻る"], "minecraft:barrier");
     
@@ -142,7 +329,7 @@ function openDetailStats(player) {
             } else {
                 player.sendMessage("§7補正なし（基礎値のみ）");
             }
-            player.playSound("random.orb");
+            player.playSound("random.orb", { volume: 0.35 });
             openDetailStats(player); 
         } else {
             openDetailStats(player);
@@ -162,9 +349,9 @@ function openProfileMenu(player) {
         let desc = "§7空 / 初期状態", level = 1;
         if (slotJson) { try { const data = JSON.parse(slotJson); level = data.level || 1; desc = `§7Lv: ${level}, タレント: ${data.talents.length}`; } catch (e) { } }
         
-        form.button(slotPositions[i], isCurrent ? `§a§lスロット ${i} (使用中)` : `§lスロット ${i}`, [desc, isCurrent ? "§a[現在のデータ]" : "§e[クリックでロード]"], isCurrent ? "minecraft:ender_chest" : "minecraft:chest", level);
+        form.button(slotPositions[i], isCurrent ? `§a§lスロット ${i} (使用中)` : `§lスロット ${i}`, [desc, isCurrent ? "§a[現在のデータ]" : "§e[クリックでロード]"], isCurrent ? "textures/blocks/ender_chest_front" : "textures/blocks/chest_front", level);
     }
-    form.button(26, "§c§l戻る", ["§rメニューへ戻る"], "minecraft:barrier");
+    form.button(26, "§c§l戻る", ["§rメニューへ戻る"], "textures/items/barrier");
 
     form.show(player).then(res => {
         if (res.canceled || res.selection === 26) { openMenuHub(player); return; }
@@ -172,8 +359,8 @@ function openProfileMenu(player) {
         if (targetSlot && parseInt(targetSlot) !== activeSlot) {
             saveProfile(player, activeSlot);
             loadProfile(player, parseInt(targetSlot));
-            player.playSound("random.orb");
-            player.sendMessage(`§aプロファイル スロット${targetSlot} をロードしました。`);
+            player.playSound("random.orb", { volume: 0.35 });
+            player.sendMessage(`§8» §aプロファイル スロット${targetSlot} をロードしました。`);
         }
         openMenuHub(player);
     });
@@ -187,14 +374,14 @@ function openStatusMenu(player) {
     form.title(`§lステータス | LvUpまで: ${remaining}pt`);
 
     const layout = [
-        { key: "strength", slot: 1, icon: "minecraft:netherite_sword" }, { key: "fortitude", slot: 3, icon: "minecraft:golden_apple" },
-        { key: "agility", slot: 5, icon: "minecraft:sugar" }, { key: "defense", slot: 7, icon: "minecraft:shield" },
-        { key: "intelligence", slot: 11, icon: "minecraft:enchanted_book" }, { key: "willpower", slot: 13, icon: "minecraft:beacon" },
-        { key: "charisma", slot: 15, icon: "minecraft:diamond" },
-        { key: "flame", slot: 28, icon: "minecraft:fire_charge" }, { key: "frost", slot: 30, icon: "minecraft:snowball" },
-        { key: "gale", slot: 32, icon: "minecraft:elytra" }, { key: "thunder", slot: 34, icon: "minecraft:lightning_rod" },
-        { key: "heavy", slot: 47, icon: "minecraft:anvil" }, { key: "medium", slot: 49, icon: "minecraft:iron_chestplate" },
-        { key: "light", slot: 51, icon: "minecraft:bow" }
+        { key: "strength", slot: 1, icon: "textures/items/netherite_sword" }, { key: "fortitude", slot: 3, icon: "textures/items/apple_golden" },
+        { key: "agility", slot: 5, icon: "textures/items/sugar" }, { key: "defense", slot: 7, icon: "textures/items/shield" },
+        { key: "intelligence", slot: 11, icon: "textures/items/book_enchanted" }, { key: "willpower", slot: 13, icon: "textures/blocks/beacon" },
+        { key: "charisma", slot: 15, icon: "textures/items/diamond" },
+        { key: "flame", slot: 28, icon: "textures/items/fire_charge" }, { key: "frost", slot: 30, icon: "textures/items/snowball" },
+        { key: "gale", slot: 32, icon: "textures/items/elytra" }, { key: "thunder", slot: 34, icon: "textures/items/lightning_rod" },
+        { key: "heavy", slot: 47, icon: "textures/blocks/anvil_top" }, { key: "medium", slot: 49, icon: "textures/items/iron_chestplate" },
+        { key: "light", slot: 51, icon: "textures/items/bow_standby" }
     ];
 
     const slotToKeyMap = {};
@@ -206,7 +393,7 @@ function openStatusMenu(player) {
         slotToKeyMap[item.slot] = item.key;
     });
 
-    form.button(53, "§c§l戻る", ["§rメニューへ戻る"], "minecraft:barrier");
+    form.button(53, "§c§l戻る", ["§rメニューへ戻る"], "textures/items/barrier");
     form.show(player).then(res => {
         if (res.canceled || res.selection === 53) { openMenuHub(player); return; }
         const selectedKey = slotToKeyMap[res.selection];
@@ -247,7 +434,7 @@ function upgradeStat(player, statKey, amount = 1) {
 
         const level = player.getDynamicProperty("deepcraft:level") || 1;
         if (level >= 20) { // 20でストップ
-             if (successCount === 0) player.sendMessage("§c最大レベル(20)に到達しています！");
+             if (successCount === 0) player.sendMessage("§8» §c最大レベル(20)に到達しています！");
              break;
         }
         
@@ -262,11 +449,11 @@ function upgradeStat(player, statKey, amount = 1) {
         const currentVal = player.getDynamicProperty(`deepcraft:${statKey}`) || 0;
 
         if (currentVal >= 100) {
-            if (successCount === 0) player.sendMessage("§cこれ以上強化できません！");
+            if (successCount === 0) player.sendMessage("§8» §cこれ以上強化できません！");
             break;
         }
         if (currentXP < cost) {
-            if (successCount === 0) player.sendMessage(`§cXPが足りません！ 必要: ${cost}`);
+            if (successCount === 0) player.sendMessage(`§8» §cXPが足りません！ 必要: ${cost}`);
             break;
         }
 
@@ -280,8 +467,8 @@ function upgradeStat(player, statKey, amount = 1) {
     }
 
     if (successCount > 0) {
-        player.playSound("random.levelup");
-        player.sendMessage(`§a${CONFIG.STATS[statKey]} を +${successCount} 強化しました。`);
+        player.playSound("random.levelup", { volume: 0.4 });
+        player.sendMessage(`§8» §a${CONFIG.STATS[statKey]} を +${successCount} 強化しました。`);
         applyStatsToEntity(player);
         
         // 強化後にレベルアップ条件を満たしているかチェック
@@ -303,8 +490,15 @@ function processLevelUp(player) {
     player.setDynamicProperty("deepcraft:invested_points", 0);
     let pending = player.getDynamicProperty("deepcraft:pending_card_draws") || 0;
     player.setDynamicProperty("deepcraft:pending_card_draws", pending + 3);
-    player.sendMessage(`§6[LEVEL UP] Lv.${currentLvl + 1} になりました！`);
-    player.playSound("ui.toast.challenge_complete");
+    player.sendMessage(`§8» §6[LEVEL UP] Lv.${currentLvl + 1} になりました！`);
+    player.playSound("ui.toast.challenge_complete", { volume: 0.4 });
+
+    // レベルアップ時だけ、控えめに見える粒子
+    burstParticles(player, [
+        "minecraft:totem_particle",
+        "minecraft:villager_happy",
+    ], { count: 8, yOffset: 1.1, spread: 1.2 });
+
     system.runTimeout(() => openMenuHub(player), 20);
 }
 
@@ -315,11 +509,11 @@ function openTalentViewer(player) {
     const tags = player.getTags();
     CARD_POOL.forEach(card => {
         if (tags.includes(`talent:${card.id}`)) {
-            form.button(slot++, card.name, [card.description, `§o${card.rarity}`], "minecraft:enchanted_book");
+            form.button(slot++, card.name, [card.description, `§o${card.rarity}`], "textures/items/book_enchanted");
         }
     });
-    if (slot === 0) form.button(22, "§7タレントなし", [], "minecraft:barrier");
-    form.button(53, "§c§l戻る", [], "minecraft:barrier");
+    if (slot === 0) form.button(22, "§7タレントなし", [], "textures/items/barrier");
+    form.button(53, "§c§l戻る", [], "textures/items/barrier");
     form.show(player).then(res => { if (!res.canceled && res.selection === 53) openMenuHub(player); });
 }
 
@@ -342,13 +536,13 @@ export function openQuestMenu(player) {
         if (userQuest.status === "active") { statusText = `§7進行度: §f${userQuest.progress}/${def.amount}`; }
         else if (userQuest.status === "completed") { statusText = "§a§l完了！"; clickText = "§e[報酬を受け取る]"; isGlint = true; }
         else if (userQuest.status === "claimed") { statusText = "§8(報酬受取済み)"; }
-        form.button(slot, def.name, [def.description, statusText, clickText], "minecraft:writable_book", 1, 0, isGlint);
+        form.button(slot, def.name, [def.description, statusText, clickText], "textures/items/book_writable", 1, 0, isGlint);
         questIds[slot] = qId;
         slot++;
     });
 
-    if (slot === 0) form.button(22, "§7進行中のクエストなし", [], "minecraft:barrier");
-    form.button(53, "§c§l戻る", [], "minecraft:barrier");
+    if (slot === 0) form.button(22, "§7進行中のクエストなし", [], "textures/items/barrier");
+    form.button(53, "§c§l戻る", [], "textures/items/barrier");
     form.show(player).then(res => {
         if (res.canceled || res.selection === 53) { openMenuHub(player); return; }
         const qId = questIds[res.selection];
@@ -380,7 +574,7 @@ function openCardSelection(player) {
     });
 
     form.show(player).then((response) => {
-        if (response.canceled) { player.sendMessage("§cタレントを選択してください。"); openMenuHub(player); return; }
+        if (response.canceled) { player.sendMessage("§8» §cタレントを選択してください。"); openMenuHub(player); return; }
         const idx = positions.indexOf(response.selection);
         if (idx !== -1 && selectionIds[idx]) {
             const card = CARD_POOL.find(c => c.id === selectionIds[idx]);
@@ -393,7 +587,7 @@ function applyCardEffect(player, card) {
     let pending = player.getDynamicProperty("deepcraft:pending_card_draws") || 0;
     if (pending > 0) player.setDynamicProperty("deepcraft:pending_card_draws", pending - 1);
     player.setDynamicProperty("deepcraft:temp_talent_roll", undefined);
-    player.sendMessage(`§aタレント獲得: ${card.name}`);
+    player.sendMessage(`§8» §aタレント獲得: ${card.name}`);
 
     if (card.id !== "basic_training") player.addTag(`talent:${card.id}`);
     if (card.type === "xp") addXP(player, card.value);

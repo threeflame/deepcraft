@@ -8,8 +8,8 @@ export function executeSkill(player, skillId) {
 
     const cdTag = `cooldown:skill_${skillId}`;
     if (player.hasTag(cdTag)) {
-        player.playSound("note.bass");
-        player.sendMessage("§cスキルはクールダウン中です！");
+        player.playSound("note.bass", { volume: 0.3 });
+        player.sendMessage("§8» §cスキルはクールダウン中です！");
         return;
     }
 
@@ -17,8 +17,8 @@ export function executeSkill(player, skillId) {
     let currentEther = player.getDynamicProperty("deepcraft:ether") || 0;
 
     if (currentEther < manaCost) {
-        player.playSound("note.bass");
-        player.sendMessage(`§cエーテルが足りません！ (§b${Math.floor(currentEther)} §c/ §b${manaCost}§c)`);
+        player.playSound("note.bass", { volume: 0.3 });
+        player.sendMessage(`§8» §cエーテル不足！ (§b${Math.floor(currentEther)} §c/ §b${manaCost}§c)`);
         return;
     }
 
@@ -31,7 +31,7 @@ export function executeSkill(player, skillId) {
         system.runTimeout(() => {
             if (player.isValid) {
                 player.removeTag(cdTag);
-                player.playSound("random.orb");
+                player.playSound("random.orb", { volume: 0.35 });
                 player.sendMessage(`§aスキル準備完了: ${skill.name}`);
             }
         }, skill.cooldown * 20);

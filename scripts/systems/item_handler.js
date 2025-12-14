@@ -36,7 +36,7 @@ export function handleItemUse(event) {
             if (checkReq(player, item).valid) {
                 executeSkill(player, def.skillId);
             } else {
-                player.playSound("random.break");
+                player.playSound("random.break", { volume: 0.3 });
                 player.sendMessage("§c能力不足のためスキルを発動できません！");
             }
         }
@@ -81,9 +81,6 @@ export function summonBoss(player, bossId) {
 
         calculateEntityStats(boss);
         updateMobNameTag(boss);
-
-        player.sendMessage(`§c§l警告: ${def.name} が出現しました！`);
-        player.playSound("mob.enderdragon.growl");
     } catch (e) { player.sendMessage(`§cエラー: ${e}`); }
 }
 

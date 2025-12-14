@@ -4,7 +4,10 @@ import { CONFIG } from "../config.js";
 import { EQUIPMENT_STATS } from "../data/equipment.js"; 
 import { updateMobNameTag, processBossSkillAI } from "./mob_manager.js";
 import { getItemId } from "./lore_manager.js";
-import { applyEquipmentPenalties, applyNumericalPassives, applyStatsToEntity, getXpCostForLevel } from "../player/player_manager.js";
+import { applyEquipmentPenalties, applyNumericalPassives, applyStatsToEntity, getXpCostForLevel, resetCurrentProfile } from "../player/player_manager.js";
+import { preparePlayerDeath } from "../combat/death_system.js";
+import { burstParticles } from "../utils.js";
+import { getComboDisplay } from "./input_system.js";
 
 const reviveProgress = new Map(); 
 
@@ -12,10 +15,48 @@ export function initializeGameLoop() {
     system.runInterval(() => {
         try {
             world.getAllPlayers().forEach(player => {
-                // 奈落判定タグ検知
+                // 奈落落下検知
                 if (player.hasTag("deepcraft:void_fall")) {
-                    // ★修正: kill() メソッドを使用
-                    player.kill(); 
+                    player.removeTag("deepcraft:void_fall");
+                    
+                    // Voidで奈落落下 = 即プロファイルリセット
+                    if (player.hasTag("deepcraft:void")) {
+                        player.removeTag("deepcraft:void");
+                        player.sendMessage("§8» §4Voidで消滅しました。プロファイルがリセットされます。");
+                        player.playSound("mob.wither.death");
+                        
+                        resetCurrentProfile(player);
+                        
+                        // インベントリクリア
+                        const inventory = player.getComponent("inventory")?.container;
+                        if (inventory) {
+                            for (let i = 0; i < inventory.size; i++) {
+                                inventory.setItem(i, undefined);
+                            }
+                        }
+                        
+                        // Overworldスポーン設定
+                        try {
+                            player.runCommand("execute in overworld run spawnpoint @s -219 4 -452");
+                        } catch(e) {}
+                        
+                        player.kill();
+                        return;
+                    }
+                    
+                    // 通常の奈落落下 = 即Void転送
+                    player.addTag("deepcraft:void");
+                    player.setDynamicProperty("deepcraft:overworld_deaths", 0);
+                    player.sendMessage("§8» §c奈落に落ちました。Voidへ転送されます...");
+                    player.playSound("mob.enderdragon.growl");
+                    
+                    // Voidスポーンポイント設定
+                    try {
+                        player.runCommand(`execute in the_end run spawnpoint @s ${CONFIG.VOID_SPAWN_X} ${CONFIG.VOID_SPAWN_Y} ${CONFIG.VOID_SPAWN_Z}`);
+                    } catch(e) {}
+                    
+                    player.kill();
+                    return;
                 }
 
                 playerLoop(player);
@@ -46,9 +87,16 @@ export function initializeGameLoop() {
 export function initializeDeathCheckLoop() {
     system.runInterval(() => {
         try {
-            const deadEntities = world.getDimension("overworld").getEntities({ tags: ["deepcraft:dead"] });
-            for (const entity of deadEntities) {
-                processDeath(entity);
+            // 全ディメンションをチェック
+            const dimensions = ["overworld", "nether", "the_end"];
+            for (const dimId of dimensions) {
+                try {
+                    const dim = world.getDimension(dimId);
+                    const deadEntities = dim.getEntities({ tags: ["deepcraft:dead"] });
+                    for (const entity of deadEntities) {
+                        processDeath(entity);
+                    }
+                } catch(e) {}
             }
         } catch (e) { console.warn("DeathCheckLoop Error: " + e); }
     }, 1); 
@@ -93,9 +141,11 @@ function processKnockedPlayer(player) {
         // ★削除: アニメーション処理 (playanimation) を削除しました
 
         try {
-            // パーティクルだけ残す
-            const loc = player.location;
-            player.dimension.spawnParticle("minecraft:basic_smoke_particle", { x: loc.x, y: loc.y + 0.5, z: loc.z });
+            // ノック中: 毎秒1回、血しぶき風（控えめ）
+            burstParticles(player, [
+                "minecraft:redstone_wire_dust_particle",
+                "minecraft:falling_dust_red_sand_particle",
+            ], { count: 5, yOffset: 0.7, spread: 0.9 });
             // player.nameTag = ... (変更なし)
         } catch(e){}
         
@@ -103,15 +153,16 @@ function processKnockedPlayer(player) {
         if (newBleedTime <= 0) {
             player.removeTag("deepcraft:knocked");
             player.addTag("deepcraft:dead"); 
-            player.sendMessage("§cYou bled out...");
+            player.sendMessage("§8» §c出血死しました...");
             player.nameTag = player.name;
+            preparePlayerDeath(player); // 死亡処理をkill()の前に実行
             player.kill();
             return; 
         }
     }
 
     // HUD更新 (毎ティック)
-    player.onScreenDisplay.setActionBar(`§c§l[KNOCKED] BLEED OUT: ${bleedTime}s`);
+    player.onScreenDisplay.setActionBar(`§c§l[気絶] 出血死まで: ${bleedTime}秒`);
 
     // 2. 蘇生判定 (Revive)
     const dimension = player.dimension;
@@ -145,15 +196,16 @@ function processKnockedPlayer(player) {
             player.removeEffect("blindness");
             player.removeEffect("weakness");
             player.removeEffect("jump_boost");
+            player.removeEffect("resistance");
             
             player.playSound("random.levelup");
-            player.sendMessage(`§aYou were revived by ${rescuer.name}!`);
-            rescuer.sendMessage(`§aYou revived ${player.name}!`);
+            player.sendMessage(`§8» §a${rescuer.name} に蘇生されました！`);
+            rescuer.sendMessage(`§8» §a${player.name} を蘇生しました！`);
             
             reviveProgress.delete(player.id);
         } else {
             const percent = Math.floor((progress / 60) * 100);
-            player.onScreenDisplay.setTitle(`§aReviving... ${percent}%`, { fadeInDuration:0, stayDuration:2, fadeOutDuration:0 });
+            player.onScreenDisplay.setTitle(`§a蘇生中... ${percent}%`, { fadeInDuration:0, stayDuration:2, fadeOutDuration:0 });
         }
     } else {
         if (reviveProgress.has(player.id)) {
@@ -237,7 +289,7 @@ function drawBar(current, max, length, colorChar) {
     const percent = Math.max(0, Math.min(current / safeMax, 1.0));
     const fill = Math.ceil(percent * length);
     const empty = length - fill;
-    return `§${colorChar}` + "■".repeat(fill) + "§8" + "□".repeat(empty) + "§r";
+    return `§${colorChar}` + "█".repeat(fill) + "§8" + "░".repeat(empty) + "§r";
 }
 
 function updatePlayerHud(player) {
@@ -249,19 +301,6 @@ function updatePlayerHud(player) {
     const maxEther = Math.floor(CONFIG.ETHER_BASE + ((player.getDynamicProperty("deepcraft:intelligence") || 0) * CONFIG.ETHER_PER_INT));
     const combatTimer = player.getDynamicProperty("deepcraft:combat_timer") || 0;
 
-    const healthComp = player.getComponent("minecraft:health");
-    if (healthComp) {
-        const ratio = Math.max(0, currentHP / maxHP);
-        let vanillaVal = Math.ceil(ratio * healthComp.effectiveMax);
-        
-        if (vanillaVal < 1 && currentHP > 0 && !player.hasTag("deepcraft:dead")) {
-            vanillaVal = 1;
-        }
-        if (healthComp.currentValue !== vanillaVal) {
-            try { healthComp.setCurrentValue(vanillaVal); } catch(e){}
-        }
-    }
-
     const burn = player.getDynamicProperty("deepcraft:status_burn") || 0;
     const freeze = player.getDynamicProperty("deepcraft:status_freeze") || 0;
     const shock = player.getDynamicProperty("deepcraft:status_shock") || 0;
@@ -272,13 +311,14 @@ function updatePlayerHud(player) {
     if (shock > 0) dotText += ` §e[S:${shock}]`;
 
     let hudText = "";
+    const comboDisplay = getComboDisplay(player);
 
     if (combatTimer > 0) {
         const hpBar = drawBar(currentHP, maxHP, 10, "c");
         hudText = `§cHP: ${currentHP}/${maxHP}  ${hpBar}\n`;
         const mpBar = drawBar(currentEther, maxEther, 10, "b");
         hudText += `§bMP: ${currentEther}/${maxEther}  ${mpBar}\n`;
-        hudText += `§c<!> COMBAT: ${combatTimer.toFixed(1)}s <!>${dotText}`;
+        hudText += `§c<!> COMBAT: ${combatTimer.toFixed(1)}s <!>${dotText}  ${comboDisplay}`;
     } else {
         const level = player.getDynamicProperty("deepcraft:level") || 1;
         const xp = player.getDynamicProperty("deepcraft:xp") || 0;
@@ -286,15 +326,15 @@ function updatePlayerHud(player) {
         const gold = player.getDynamicProperty("deepcraft:gold") || 0;
 
         hudText = `§cHP: ${currentHP}/${maxHP}   §bMP: ${currentEther}/${maxEther}\n`;
-        hudText += `§eLv.${level}   §fXP:${xp}/${reqXp}   §6${gold} G`;
+        hudText += `§eLv.${level}   §fXP:${xp}/${reqXp}   §6${gold} G   ${comboDisplay}`;
         
         if (dotText !== "") {
             hudText += `\n${dotText}`;
         }
-    }
-    
-    if (player.hasTag("deepcraft:safe")) {
-        hudText += `\n§a[Safe Zone]`;
+        
+        if (player.hasTag("deepcraft:safe")) {
+            hudText += `\n§a[Safe Zone]`;
+        }
     }
 
     player.onScreenDisplay.setActionBar(hudText);

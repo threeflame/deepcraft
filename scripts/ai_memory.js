@@ -2,145 +2,258 @@
 
 /*
 ==========================================================================
- 🧠 AI CONTEXT MEMORY (DeepCraft Development Log)
-==========================================================================
-## [v31.0] Hybrid Item Data Storage
-- **Policy**:
-    - Non-Stackable (Weapons/Armor) -> **Dynamic Properties** (Safer/Faster).
-    - Stackable (Materials) -> **Lore Encoding** (Prevents stack merging issues).
-- **Implementation**: `lore_manager.js` now handles this switching automatically via `setItemData` / `getItemId`.
-
-# 📜 Development History
-## [v30.1] HP Sync Logic Removal
-- **Change**: Removed logic that synced Virtual HP to Vanilla HP in `combat_system.js`.
-- **Reason**: Caused `ArgumentOutOfBoundsError` and interfered with external survival mechanics.
-- **Current**: Script only updates `deepcraft:hp` and NameTag. Vanilla HP management is handled externally.
-
-# 📜 Development History
-## [v30.0] Weapon Scaling System (Integer Based)
-- **Mechanic**: `ATK = Base + (Stat * Scale / 10)`.
-- **Stats**: Only `Mastery` (Light/Med/Heavy) and `Element` (Flame etc) affect damage. `Strength` is removed from damage calc.
-- **Data**: Added `scaling` property to `equipment.js` (e.g., `heavy: 15` = 1.5x scaling).
-
-
-# 📜 Development History
-## [v29.0] DeepCraft Reforged v3 (Balance Update)
-- **Concept**: HP 1000-2000 vs Dmg 50-100 at Endgame (Lv20).
-- **Stats**:
-    - Fortitude: Integrated HP & Def.
-    - Defense (Stat): Deprecated.
-- **Calculation**:
-    - HP = 300 + (Lv*30) + (Fort*12)
-    - ATK = Weapon + (Lv*3) + (Str*2.0)
-    - DefScore = Armor + (Lv*4) + (Fort*2)
-    - Reduction = Score / (Score + 150)
-
-## [v28.1] Command Rename
-- `/deepcraft:cgive`, `/deepcraft:csummon`
-
-# 📜 Development History
-## [v27.0] Summoner Class Implementation
-- **Feature**: Necromancer Staff & Summon Minion Skill.
-- **Entity**: `deepcraft:minion_zombie` (Friendly, Tameable).
-- **Mechanic**: Minions scale with Intelligence, follow owner, and ignore FF.
-- **Files**: `minion_zombie.json` added to entities.
-
-## [v26.1] Attack Speed Revert (Again)
-- **Status**: Removed. Vanilla combat speed.
-
-# 📜 Development History (開発の軌跡・日記)
-※ 新しい変更や決定事項はここに追加し、過去の経緯を参照できるようにする。
-
-# 📜 Development History
-## [v26.0] Attack Cooldown v2 (Timestamp Method)
-- **Re-implementation**: Attack cooldowns are back.
-- **Method**: Uses `system.currentTick` vs `deepcraft:next_attack_tick`. No timers involved.
-- **UI**: Simple Subtitle Gauge (Green/Red bars).
-
-## [v25.0] Native Custom Command Implementation
-- **Command**: `/deepcraft:menu`, `/sell`, etc.
-- **Registry**: `system.beforeEvents.startup`.
-
+ ♾️ DEEPCRAFT REFORGED v3: THE ETERNAL ARCHIVE (開発聖書)
+ Version: 11.0 (The Absolute Law)
+ Last Updated: Cycle 3
 ==========================================================================
 
-# ⚠️ Active Technical Constraints & Ban List
-1.  **[BANNED] `system.runTimeout` for Cooldowns**
-    * **Reason**: Prone to bugs/desync.
-    * **Solution**: Use timestamp comparison (Tick-based).
+【 ⚠️ 開発者(AI)への最重要・絶対命令 (PRIME DIRECTIVES) 】
+以下のルールは、いかなる技術的・ゲームデザイン的理由があっても変更、無視、拡張してはならない。
 
-2.  **[BANNED] `entity.runCommand()` (Sync)**
-    * **Solution**: `runCommandAsync`.
+1. **ユーザー指示の絶対性 (User Sovereignty)**
+   - ユーザーが「不要」と判断した機能は、1ミリたりとも実装してはならない。
+   - 「RPG的に自然」「一般的」「バランスが良い」という理由は、ユーザーの指示を覆す正当な理由にはならない。
+   - 特に「魔法防御力 (Magic Resist)」「魔法防御ステータス」の実装は永久に禁止する。
 
-3.  **[BANNED] `EquipmentSlot` String Literals**
-    * **Solution**: `EquipmentSlot.Mainhand` (Enum).
-## [v23.0] Custom Command & API Stability Strategy
-- **Decision**: `world.beforeEvents.chatSend` is confirmed as **Beta API only**.
-- **Decision**: `CustomCommand` (Slash Commands) is available in **Stable API**.
-- **Action**:
-    - 廃止: `!menu` などのチャット検知方式。
-    - 採用: `CustomCommandRegistry` を使用したネイティブコマンド (`/menu`, `/sell` etc.)。
-    - 実装予定コマンド: `menu`, `sell`, `stats`, `quest`.
-- **Policy**: AI Memory will now serve as a persistent log to prevent repeating mistakes.
+2. **魔法仕様の鉄の掟 (Magic Rules)**
+   - **威力**: `Intelligence` (知力) ステータスで魔法の基礎威力を上げてはならない。
+     - 魔法の強化は、レベルアップで取得する「タレント (Glass Cannonなど)」の倍率補正のみで行う。
+   - **防御**: 魔法ダメージも、物理攻撃と全く同じ「防御力 (Defense)」で軽減する。
+     - 魔法専用の軽減ステータスや、Willpowerによる耐性ボーナスは一切認めない。
+   - **計算**: スキル側でダメージ計算を行ってはならない。`combat_system.js` に `cause: magic` でダメージを渡し、そこで一括計算させること。
 
-## [v21.0] Attack Speed & Scale Logic Revert
-- **Issue**: Custom attack cooldowns via `runTimeout` caused permanent inability to attack due to `isValid` reference loss or sync issues.
-- **Issue**: `player.triggerEvent` for resizing was removed in API 2.x, causing errors.
-- **Fix**:
-    - Attack speed reverted to Vanilla (spam-clicking allowed).
-    - Removed all player scaling logic.
-- **Lesson**: Avoid complex async state management for high-frequency actions like combat.
+3. **確認プロセスの徹底 (Confirmation Protocol)**
+   - 「案を出して」と言われた場合、コードを書いてはならない。設計思想とロジックの説明に留めること。
+   - 勝手な仕様追加（例：パリィ、回避アクション）は、ユーザーへの裏切り行為と認識せよ。
 
-## [v20.0] API 2.3.0 Migration (Breaking Changes)
-- **Migration**: Updated `@minecraft/server` to 2.3.0 and `@minecraft/server-ui` to 2.0.0.
-- **Fixes**:
-    - `runCommand` -> `runCommandAsync`.
-    - `entity.isValid()` -> `entity.isValid` (Property).
-    - `getEquipment("Hand")` -> `getEquipmentSlot(EquipmentSlot.Mainhand).getItem()`.
-    - Fixed `EquipmentSlot` casing (`MainHand` -> `Mainhand`).
+4. **コード記述の制約 (Coding Constraints)**
+   - 許可なく新しいファイルを作成しないこと。
+   - 既存のアーキテクチャ（計算は `stat_calculator`、適用は `combat_system`）を崩さないこと。
 
 ==========================================================================
+1. プロジェクト概要 (Project Overview)
+==========================================================================
+[タイトル] DeepCraft (Reforged v3)
+[コンセプト] DeepwokenリスペクトのハードコアPvPvE RPG。舞台は浮遊大陸。
+[ターゲット] モバイル端末での操作性を考慮し、反射神経（パリィ/ドッヂ）ではなく「知識」「ビルド」「立ち回り」で戦うゲーム。
 
-# ⚠️ Active Technical Constraints & Ban List (現在の技術的制約)
-※ 開発時に必ず遵守すること。
-
-1.  **[BANNED] `world.beforeEvents.chatSend`**
-    * **Reason**: Script API Stable版では使用不可（Beta機能）。
-    * **Solution**: カスタムコマンド機能を使用する。
-
-2.  **[BANNED] `entity.runCommand()` (Sync)**
-    * **Reason**: API 2.x で廃止。
-    * **Solution**: `runCommandAsync` を使用する。
-
-3.  **[BANNED] `EquipmentSlot` String Literals**
-    * **Reason**: 文字列指定 ("Mainhand") は不安定。
-    * **Solution**: 必ず `EquipmentSlot.Mainhand` (Enum) を使用する。
-
-4.  **[BANNED] `entity.triggerEvent()`**
-    * **Reason**: 廃止されたメソッド。
-    * **Solution**: コンポーネントの直接操作 (`component.value = ...`) を行う。
-
-5.  **[BANNED] Dynamic Property on Stackable Items**
-    * **Reason**: アイテムスタック時にデータが消失・競合するため。
-    * **Solution**: スタック可能なアイテムのデータは `Lore` (不可視色コード) に保存する。
+### 🛡️ コアバリュー (Core Values)
+1.  **資産価値 (Asset Value)**
+    - プレイヤーの努力の結晶（銘入り武器、レア種族）をシステム的に保証する。
+    - 簡単に手に入るものは価値がない。ロストのリスクがあるからこそ輝く。
+2.  **役割と相互依存 (Interdependency)**
+    - 全てを一人で完結させない。鍛冶屋、運び屋、傭兵など、他者を必要とする社会を作る。
+3.  **アクションの排除 (No Reflex Action)**
+    - **禁止**: パリィ (Parry)、ジャストガード、ドッヂ (回避ステップ)、リズムゲー要素。
+    - **推奨**: 読み合い、ポジショニング、スキルビルド、装備の準備。
 
 ==========================================================================
+2. 技術スタックとファイル構造 (Architecture)
+==========================================================================
+[API環境] @minecraft/server 2.3.0 (Stable), @minecraft/server-ui 2.0.0
 
-# 🛡️ Critical Implementation Rules (基幹システム仕様)
+### 📁 主要ファイルと役割分担
+* **`main.js`**: エントリーポイント。イベントリスナーの登録、ループの開始。
+* **`config.js`**: 定数設定（最大レベル、経験値テーブル、Void座標など）。
+* **`ai_memory.js`**: 本ファイル。仕様と制約のデータベース。
 
-### A. Command System (Target: CustomCommand)
-- **Commands**:
-    - `/menu`: Open Menu Hub.
-    - `/sell [price]`: Sell held item.
-    - `/stats`: Show player stats in chat.
-    - `/quest`: Open Quest Log.
+#### [Systems] (システム基盤)
+* **`game_loop.js`**: 1tick/20tickごとの常時処理（HP自然回復、状態異常監視、HUD更新）。
+* **`input_system.js`**: 右クリック検知、コンボ入力 (R-R-L等)、長押し判定。
+* **`movement_system.js`**: 空中ダッシュ (Air Dash) などの移動アクション制御。
+* **`lore_manager.js`**: アイテムデータの保存・読み込み（Loreへのエンコード/デコード）。
+* **`mob_manager.js`**: MobのHPバー表示、ボスのスキルAI処理。
+* **`party_manager.js`**: パーティ作成、招待、離脱、フレンドリーファイア制御。
+* **`spawner_manager.js`**: カスタムスポナーの設置とMob湧き制御。
+* **`debug_menu.js`**: 管理者用デバッグツール（アイテム入手、ステータス操作）。
 
-### B. Item Data Storage
-- **Lore式**: 全てのアイテムデータ保存の基本。`lore_manager.js` でエンコード/デコードを行う。
+#### [Player] (プレイヤー管理)
+* **`player_manager.js`**: プロファイル管理（セーブ/ロード/リセット）、初期化、リスポーン処理。
+* **`stat_calculator.js`**: **【最重要】** ステータス計算の全権を担う。
+    - ここで計算された `atk`, `def`, `magicPower` だけが正解となる。
+* **`skill_manager.js`**: スキルの発動条件チェック（MP、クールダウン）と実行。
+* **`quest_manager.js`**: クエストの受注、進行、報酬受け取り。
+* **`grimoire.js`**: コンボコマンドとスキルの紐付け設定。
 
-### C. Combat System
-- **Damage**: `world.afterEvents.entityHurt` のみで処理。
-- **Calculation**: 攻撃力・防御力・タレント補正を計算し、`victim.applyDamage` または `setCurrentValue` (回復による相殺) で反映。
-- **Death**: `dead` タグを付与し、1tick後のループでドロップ処理とキル確定を行う。
+#### [Combat] (戦闘処理)
+* **`combat_system.js`**: **【最重要】** ダメージ適用の現場。
+    - `entityHurt` イベントを検知し、`stat_calculator` の数値を元にHPを減らす。
+    - 物理/魔法の区別なく、防御力 (Defense) で軽減計算を行う。
+    - 気絶 (Knockdown)、処刑 (Execution) の判定もここで行う。
+* **`death_system.js`**: 死亡時の処理（XPロスト、ドロップ、Void転送判定）。
 
+#### [Data] (データ定義)
+* **`equipment.js`**: 武器・防具の定義（攻撃力、補正値、専用スキル）。
+* **`skills.js`**: スキルの挙動定義（パーティクル、音、`applyDamage`）。
+* **`talents.js`**: パッシブスキル（タレント）の定義と習得条件。
+* **`mobs.js`**: カスタムMob、ボスのステータス、ドロップ、スキル定義。
+* **`quests.js`**: クエストの内容と報酬定義。
+* **`market.js`**: プレイヤー間マーケットの出品データ管理。
+
+### 💾 データ保存ルール (Data Persistence)
+1.  **武器・装備 (Unique Items)**
+    - **Dynamic Properties (DP)**: `deepcraft:item_id`, `deepcraft:extra_data`
+    - 理由: スタックしないアイテムはDPが安全かつ高速。
+2.  **素材・消耗品 (Stackable Items)**
+    - **Lore Encoding**: 説明文に見えない文字コードでJSONを埋め込む。
+    - 理由: バニラではスタック時にDPが消失するため。
+3.  **ワールドデータ (World)**
+    - **マーケット出品**: `deepcraft:market_{n}` (チャンク分割保存)
+    - **ポスト (Mailbox)**: `deepcraft:mailbox_{uuid}`
+
+==========================================================================
+3. ステータスシステム詳細 (Status System)
+==========================================================================
+
+### A. 基礎ステータス (Stats)
+すべて `deepcraft:{name}` のDynamicPropertyとしてプレイヤーに保存。
+
+| ステータス名 | 略称 | 効果・役割 |
+| :--- | :--- | :--- |
+| **Strength** | STR | 物理攻撃力(微増)、タレント前提 |
+| **Fortitude** | VIT | 最大HP、物理/魔法防御力 |
+| **Agility** | AGI | 移動速度、クリティカル率、回避率 |
+| **Intelligence**| INT | 最大MP(Ether) **※魔法威力には影響しない** |
+| **Willpower** | WIL | MP自然回復量 |
+| **Charisma** | CHA | 召喚ミニオンの攻撃力、取引価格(未実装) |
+
+### B. 属性・熟練度 (Mastery & Elements)
+| カテゴリ | 項目 | 効果 |
+| :--- | :--- | :--- |
+| **Element** | Flame, Frost, Gale, Thunder | 特定属性武器の装備条件、タレント前提 |
+| **Mastery** | Heavy, Medium, Light | 武器種ごとのダメージボーナス、装備条件 |
+
+### C. 計算式 (Formulas)
+ソース: `stat_calculator.js`
+
+1.  **最大HP (MaxHP)**
+    - `270 + (Level * 30) + (Fortitude * 15)`
+    - タレント補正
+
+2.  **物理攻撃力 (Physical ATK)**
+    - `武器ATK + (Level * 3) + (Strength * 0.2)`
+    - `+ (MasteryLv * Scaling / 10)` (武器スケーリング)
+    - `x 1.0 + (MasteryLv * 0.005)` (熟練度ボーナス)
+    - タレント補正 
+
+3.  **魔法威力倍率 (Magic Power)**
+    - **基礎値: 1.0 (固定)**
+    - **Intelligenceによる補正: なし (0%)**
+    - タレント補正
+
+4.  **防御スコア (Defense Score)**
+    - `装備DEF + (Level * 4) + (Fortitude * 2)`
+    - タレント補正
+
+5.  **ダメージ軽減率 (Reduction Rate)**
+    - `DefenseScore / (DefenseScore + 150)`
+    - ※ 物理・魔法共通で使用される。
+
+==========================================================================
+4. 戦闘システム詳細 (Combat Mechanics)
+==========================================================================
+
+### A. ダメージ処理フロー
+1.  **発生**: 剣で殴る (`cause: entityAttack`) or スキル (`cause: magic`)
+2.  **検知**: `combat_system.js` が `entityHurt` を受信。
+3.  **基礎値決定**:
+    - 物理: `atk` ステータスを使用。
+    - 魔法: イベントのダメージ値 x `magicPower`。
+4.  **軽減**:
+    - `Damage * (1.0 - ReductionRate)`
+    - 魔法防御ステータスは存在しないため、魔法も上記のDefense由来の軽減率を使う。
+5.  **適用**:
+    - `deepcraft:hp` を減算。
+    - 0以下になったら「気絶」または「死亡」処理。
+
+### B. 生死の循環 (Cycle of Life)
+1.  **気絶 (Knockdown)**
+    - HPが0になると付与。移動不可、攻撃不可。
+    - **出血 (Bleedout)**: 30秒カウントダウン。0で死亡。
+    - **処刑 (Execution)**: 気絶中に攻撃を受けるとカウントが1秒減る。
+    - **蘇生 (Revive)**: 味方が近くでスニークし続けると復活（HP20%）。
+2.  **死亡 (Death)**
+    - Overworldでの死亡回数 (`overworld_deaths`) をカウント。
+    - XPの一部ロスト、アイテムの一部ドロップ（Soulとして残る）。
+3.  **虚無 (The Void)**
+    - 死亡回数が **3回** に達すると、エンドディメンション (`the_end`) のVoidエリアへ強制転送。
+    - **脱出条件**: 現状はリセットのみ。
+    - **Wipe**: Voidで死亡すると、プロファイル（レベル、スキル、ステータス、所持金）が完全リセットされ、初期地点へ戻る。
+
+### C. セーフゾーン (Safe Zone)
+- タグ `deepcraft:safe` を持つプレイヤーは無敵。
+- 攻撃行為（アイテム使用、魔法発動）を行うと即座にキャンセルされる。
+
+==========================================================================
+5. 経済・クエスト・パーティ (Systems)
+==========================================================================
+
+### A. マーケット (Marketplace)
+- **非同期取引**: 出品データはワールドのDynamicPropertyにJSON配列として保存。
+- **ポストシステム**: 購入品や売上金は「ポスト」に送られる。インベントリ溢れによるロストを防ぐため。
+- **検索機能**: アイテム名、出品者名での検索が可能。
+
+### B. クエスト (Questing)
+- **受注**: メニューから受注。
+- **進行**: 討伐数などをカウントし、DPに保存。
+- **報酬**: 完了時にXPやアイテムを自動付与。
+
+### C. パーティ (Party)
+- **ID管理**: リーダーが生成したUUIDをメンバー全員の `deepcraft:party_id` に付与。
+- **FF無効化**: ターゲット選択ロジック (`findNearbyEnemies`) やダメージ処理で、同じパーティIDを持つ対象を除外。
+- **経験値共有**: ボス討伐時、近くにいるパーティメンバーにXPを分配。
+
+==========================================================================
+6. 今後のロードマップ (Future Roadmap)
+==========================================================================
+以下の機能は **未実装** であり、開発の優先事項である。
+
+1.  **鍛冶システム (Smithing)**: [Priority: High]
+    - 素材を消費して装備を作成する。
+    - ランダムな「品質 (Quality)」と「個体値 (Variance)」を付与する。
+    - 銘入れシステム。
+2.  **HPバーの視覚同期 (Visual Sync)**: [Priority: Medium]
+    - 仮想HPの割合を、バニラのハート（体力ゲージ）に反映させる処理。
+    - 現在はアクションバーのみで表示している。
+3.  **未鑑定遺物 (Artifacts)**: [Priority: Medium]
+    - ダンジョン等で入手し、鑑定することで装備になるアイテム。
+4.  **タレントツリーの拡張**: [Priority: Low]
+    - 現在はランダムドローのみだが、ツリー形式での取得も検討。
+
+==========================================================================
+7. 変数・タグ・ID辞書 (Dictionary)
+==========================================================================
+
+### [Dynamic Properties (Player)]
+| Key | Type | Description |
+| :--- | :--- | :--- |
+| `deepcraft:level` | number | 現在のレベル (Max 20) |
+| `deepcraft:xp` | number | 現在の経験値 |
+| `deepcraft:gold` | number | 所持金 |
+| `deepcraft:hp` | number | 現在の仮想HP |
+| `deepcraft:max_hp` | number | 最大仮想HP |
+| `deepcraft:ether` | number | 現在のMP |
+| `deepcraft:invested_points` | number | そのレベルで割り振ったステータスポイント総数 |
+| `deepcraft:active_profile` | number | 現在使用中のプロファイルスロット (1-3) |
+| `deepcraft:overworld_deaths` | number | 死亡回数カウント |
+| `deepcraft:combat_timer` | number | 戦闘状態の残り時間 (秒) |
+| `deepcraft:bleed_time` | number | 気絶からの失血死までの時間 (秒) |
+| `deepcraft:party_id` | string | 所属パーティのUUID |
+| `deepcraft:quest_data` | JSON | クエスト進行状況 |
+| `deepcraft:grimoire` | JSON | コンボ設定 |
+
+### [Tags]
+| Tag | Description |
+| :--- | :--- |
+| `deepcraft:knocked` | 気絶状態 |
+| `deepcraft:dead` | 死亡処理中 |
+| `deepcraft:void` | Void堕ち状態 (次回死亡でリセット) |
+| `deepcraft:safe` | セーフゾーン内 |
+| `talent:{id}` | 特定のタレントを習得済み |
+| `spell:{id}` | 特定の魔法を習得済み |
+| `admin` | デバッグ機能へのアクセス権 |
+
+==========================================================================
+End of Archive
 ==========================================================================
 */

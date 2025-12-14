@@ -4,7 +4,7 @@ import { system } from "@minecraft/server";
 import { openMenuHub, openQuestMenu } from "../ui/ui_manager.js";
 import { processCommandSell } from "../data/market.js";
 import { calculateEntityStats } from "../player/stat_calculator.js";
-import { openDebugMenu } from "./debug_menu.js"; // ★変更: デバッグメニューをインポート
+import { openDebugHub } from "./debug_menu.js";
 
 system.beforeEvents.startup.subscribe(ev => {
     const registry = ev.customCommandRegistry;
@@ -39,7 +39,7 @@ system.beforeEvents.startup.subscribe(ev => {
             const priceInput = args.price;
             system.run(() => {
                 if (priceInput === undefined) {
-                    player.sendMessage("§c使用法: /deepcraft:sell <価格>");
+                    player.sendMessage("§8» §c使用法: /deepcraft:sell <価格>");
                 } else {
                     processCommandSell(player, priceInput);
                 }
@@ -83,7 +83,7 @@ system.beforeEvents.startup.subscribe(ev => {
         const player = origin.sourceEntity;
         if (player) {
             if (!player.hasTag("admin")) {
-                player.sendMessage("§c権限がありません。(/tag @s add admin)");
+                player.sendMessage("§8» §c権限がありません。");
                 return;
             }
             system.run(() => openDebugMenu(player));
@@ -102,20 +102,20 @@ system.beforeEvents.startup.subscribe(ev => {
         const player = origin.sourceEntity;
         if (player) {
             if (!player.hasTag("admin")) {
-                player.sendMessage("§c権限がありません。");
+                player.sendMessage("§8» §c権限がありません。");
                 return;
             }
             
             system.run(() => {
                 if (player.hasTag("deepcraft:vanished")) {
-                    player.runCommandAsync("gamemode creative @s");
+                    player.runCommand("gamemode creative @s");
                     player.removeTag("deepcraft:vanished");
-                    player.sendMessage("§a[Admin] 姿を現しました。(Visible Mode)");
+                    player.sendMessage("§8» §a姿を現しました。 (Visible)");
                     player.playSound("random.pop");
                 } else {
-                    player.runCommandAsync("gamemode spectator @s");
+                    player.runCommand("gamemode spectator @s");
                     player.addTag("deepcraft:vanished");
-                    player.sendMessage("§c[Admin] 姿を消しました。(Vanish Mode)");
+                    player.sendMessage("§8» §c姿を消しました。 (Vanish)");
                     player.playSound("random.fizz");
                 }
             });
@@ -128,7 +128,7 @@ function showPlayerStats(player) {
     const level = player.getDynamicProperty("deepcraft:level") || 1;
     const xp = player.getDynamicProperty("deepcraft:xp") || 0;
     const gold = player.getDynamicProperty("deepcraft:gold") || 0;
-    const deaths = player.getDynamicProperty("deepcraft:death_count") || 0;
+    const deaths = player.getDynamicProperty("deepcraft:overworld_deaths") || 0;
 
     let msg = `§l§a--- ${player.name}'s Stats ---§r\n`;
     msg += `§eLv.${level}  §fXP: ${xp}\n`;

@@ -23,10 +23,58 @@ export function handlePlayerSpawn(event) {
     player.removeEffect("blindness");
     player.removeEffect("weakness");
     player.removeEffect("jump_boost");
+    player.removeEffect("resistance");
     player.onScreenDisplay.setActionBar(" ");
     
     // ネームタグを戻す
     player.nameTag = player.name;
+    
+    // ===== Void転送フラグがある場合 =====
+    if (player.getDynamicProperty("deepcraft:pending_void_transfer")) {
+        player.setDynamicProperty("deepcraft:pending_void_transfer", undefined);
+        const theEnd = world.getDimension("minecraft:the_end");
+        player.teleport(
+            { x: CONFIG.VOID_SPAWN_X, y: CONFIG.VOID_SPAWN_Y, z: CONFIG.VOID_SPAWN_Z },
+            { dimension: theEnd }
+        );
+        player.sendMessage("§8» §5ここから脱出せよ... 死ねば全てを失う。");
+        return;
+    }
+    
+    // ===== Voidリセットフラグがある場合 =====
+    if (player.getDynamicProperty("deepcraft:pending_void_reset")) {
+        player.setDynamicProperty("deepcraft:pending_void_reset", undefined);
+        
+        // プロファイルリセットを実行
+        resetCurrentProfile(player);
+        
+        // Overworldへテレポート
+        const overworld = world.getDimension("minecraft:overworld");
+        player.teleport({ x: -219, y: 4, z: -452 }, { dimension: overworld });
+        player.sendMessage("§8» §a新たな冒険を始めましょう...");
+        return;
+    }
+    
+    // Voidリセットフラグがある場合、インベントリをクリア
+    if (player.getDynamicProperty("deepcraft:pending_wipe")) {
+        player.setDynamicProperty("deepcraft:pending_wipe", undefined);
+        const inventory = player.getComponent("inventory")?.container;
+        if (inventory) {
+            for (let i = 0; i < inventory.size; i++) {
+                inventory.setItem(i, undefined);
+            }
+        }
+        const equip = player.getComponent("equippable");
+        if (equip) {
+            [EquipmentSlot.Head, EquipmentSlot.Chest, EquipmentSlot.Legs, EquipmentSlot.Feet, EquipmentSlot.Mainhand, EquipmentSlot.Offhand].forEach(slotId => {
+                try {
+                    const slot = equip.getEquipmentSlot(slotId);
+                    if (slot) slot.setItem(undefined);
+                } catch(e) {}
+            });
+        }
+        player.sendMessage("§8» §cインベントリがクリアされました。");
+    }
 
     // コンバットログチェック (変更なし)
     const logKey = `combat_log:${player.id}`;
@@ -41,9 +89,9 @@ export function handlePlayerSpawn(event) {
                 if (slot) slot.setItem(undefined);
             });
         }
-        player.sendMessage("§c§l[警告] 戦闘中に切断したため、ペナルティとして死亡します...");
+        player.sendMessage("§8» §c戦闘中に切断したため、ペナルティとして死亡します...");
         system.runTimeout(() => {
-            if (player.isValid) player.runCommandAsync("kill @s");
+            if (player.isValid) player.runCommand("kill @s");
         }, 60);
         return;
     }
@@ -59,9 +107,9 @@ function initializePlayer(player) {
     player.setDynamicProperty("deepcraft:hp", 100);
     player.setDynamicProperty("deepcraft:max_hp", 100);
     player.setDynamicProperty("deepcraft:invested_points", 0);
-    player.setDynamicProperty("deepcraft:death_count", 0);
+    player.setDynamicProperty("deepcraft:overworld_deaths", 0);
     loadProfile(player, 1);
-    player.sendMessage("§aDeepCraft System Initialized.");
+    player.sendMessage("§8» §aDeepCraft System Initialized.");
 }
 
 // ... (以下の関数群は変更なし、そのまま維持)
@@ -72,7 +120,7 @@ export function getXpCostForLevel(level) {
 export function addXP(player, amount) {
     let currentXP = player.getDynamicProperty("deepcraft:xp") || 0;
     player.setDynamicProperty("deepcraft:xp", currentXP + amount);
-    player.sendMessage(`§e+${amount} XP`);
+    player.sendMessage(`§8» §e+${amount} XP`);
 }
 
 export function applyStatsToEntity(player) {
@@ -102,7 +150,7 @@ export function applyStatsToEntity(player) {
         movement.setCurrentValue(Math.max(0.0, finalSpeed));
     }
     
-    if (!player.hasTag("deepcraft:knocked") && player.nameTag.includes("KNOCKED")) {
+    if (!player.hasTag("deepcraft:knocked") && player.nameTag.includes("気絶")) {
         player.nameTag = player.name;
     }
 }
@@ -126,7 +174,7 @@ export function applyNumericalPassives(player) {
     }
 
     if (player.hasTag("talent:full_belly")) {
-        player.runCommandAsync("effect @s saturation 1 0 true"); 
+        player.runCommand("effect @s saturation 1 0 true"); 
     }
 }
 
@@ -193,11 +241,45 @@ export function loadProfile(player, slot) {
 }
 
 export function resetCurrentProfile(player) {
-    const currentSlot = player.getDynamicProperty("deepcraft:active_profile") || 1;
-    player.setDynamicProperty(`deepcraft:profile_${currentSlot}`, undefined);
-    player.setDynamicProperty("deepcraft:quest_data", undefined);
-    player.setDynamicProperty("deepcraft:death_count", 0);
-    loadProfile(player, currentSlot);
-    player.playSound("random.break");
-    player.sendMessage(`§c[Debug] プロファイル スロット${currentSlot} をリセットしました。`);
+    try {
+        const currentSlot = player.getDynamicProperty("deepcraft:active_profile") || 1;
+        
+        // プロファイルデータを削除
+        player.setDynamicProperty(`deepcraft:profile_${currentSlot}`, undefined);
+        player.setDynamicProperty("deepcraft:quest_data", undefined);
+        player.setDynamicProperty("deepcraft:overworld_deaths", 0);
+        
+        // レベル・XP・お金をリセット
+        player.setDynamicProperty("deepcraft:level", 1);
+        player.setDynamicProperty("deepcraft:xp", 0);
+        player.setDynamicProperty("deepcraft:gold", 0);
+        player.setDynamicProperty("deepcraft:invested_points", 0);
+        player.setDynamicProperty("deepcraft:pending_card_draws", 0);
+        
+        // ステータスをリセット
+        for (const key in CONFIG.STATS) {
+            player.setDynamicProperty(`deepcraft:${key}`, 0);
+        }
+        
+        // タレントタグを全て削除
+        player.getTags().filter(t => t.startsWith("talent:")).forEach(t => player.removeTag(t));
+        
+        // Voidタグを確実に解除
+        player.removeTag("deepcraft:void");
+        
+        // ステータスを再計算
+        applyStatsToEntity(player);
+        const stats = calculateEntityStats(player);
+        player.setDynamicProperty("deepcraft:hp", stats.maxHP);
+        player.setDynamicProperty("deepcraft:max_hp", stats.maxHP);
+        player.setDynamicProperty("deepcraft:ether", CONFIG.ETHER_BASE);
+        
+        // リスポーン時にインベントリをクリアするフラグを設定
+        player.setDynamicProperty("deepcraft:pending_wipe", true);
+        
+        player.playSound("random.break");
+        player.sendMessage(`§8» §4プロファイルがリセットされました。`);
+    } catch(e) {
+        console.warn(`resetCurrentProfile Error: ${e}`);
+    }
 }

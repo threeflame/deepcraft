@@ -16,8 +16,8 @@ export function calculateEntityStats(entity) {
         maxHP: 100, 
         evasion: 0,
         penetration: 0,
-        magicPower: 1.0,
-        magicResist: 0,
+        magicPower: 1.0, // 魔法威力倍率 (初期値 1.0, INT依存なし)
+        magicResist: 0,  // ★魔法耐性: 常に0 (Defenseで一括管理するため不要)
         details: { atk: [], def: [], critChance: [], critMult: [], hp: [], speed: [], other: [], ether: [], regen: [], evasion: [] } 
     };
 
@@ -37,7 +37,6 @@ function calculatePlayerStats(player, stats) {
     const agi = p("deepcraft:agility");
     const int = p("deepcraft:intelligence");
     const will = p("deepcraft:willpower");
-    const oldDef = p("deepcraft:defense"); 
     
     const heavy = p("deepcraft:heavy");
     const medium = p("deepcraft:medium");
@@ -51,8 +50,6 @@ function calculatePlayerStats(player, stats) {
     };
 
     // --- 1. HP ---
-    // ★修正: 基礎値を 255 -> 270 に変更
-    // 計算: 270 + (Lv1 * 30) + (Fort0 * 15) = 300
     let hp = 270 + (level * 30) + (fort * 15);
     addD('hp', 'Base+Lv', 270 + level * 30);
     addD('hp', 'Fortitude', `+${fort * 15}`);
@@ -73,7 +70,7 @@ function calculatePlayerStats(player, stats) {
         });
     }
 
-    // --- 3. 攻撃力 ---
+    // --- 3. 物理攻撃力 (ATK) ---
     let atk = equipStats.atk + (level * 3) + (str * 0.2);
     
     addD('atk', 'Weapon', equipStats.atk);
@@ -87,11 +84,33 @@ function calculatePlayerStats(player, stats) {
     }
 
     if (player.hasTag("talent:brute_force")) { atk += 15; addD('atk', 'Brute Force', '+15'); }
-    if (player.hasTag("talent:glass_cannon")) { atk *= 1.3; addD('atk', 'Glass Cannon', 'x1.3'); }
+    
+    // タレント補正 (物理・魔法共通)
+    if (player.hasTag("talent:glass_cannon")) { 
+        atk *= 1.3; 
+        stats.magicPower *= 1.3; 
+        addD('atk', 'Glass Cannon', 'x1.3'); 
+        addD('other', 'Magic: Glass Cannon', 'x1.3');
+    }
+    if (player.hasTag("talent:berserker")) {
+        const currentHP = player.getDynamicProperty("deepcraft:hp") || 1;
+        if (currentHP / stats.maxHP <= 0.3) {
+            atk *= 1.5;
+            stats.magicPower *= 1.5;
+            addD('atk', 'Berserker', 'x1.5');
+            addD('other', 'Magic: Berserker', 'x1.5');
+        }
+    }
+    if (player.hasTag("talent:assassin") && player.isSneaking) {
+        atk *= 2.0;
+        stats.magicPower *= 2.0;
+        addD('atk', 'Assassin', 'x2.0');
+        addD('other', 'Magic: Assassin', 'x2.0');
+    }
 
     stats.atk = Math.floor(atk);
 
-    // スケーリング
+    // スケーリング (物理のみ)
     if (mainHandItem) {
         const weaponId = getItemId(mainHandItem);
         if (weaponId && EQUIPMENT_POOL[weaponId]) {
@@ -110,13 +129,20 @@ function calculatePlayerStats(player, stats) {
     }
     stats.atk = Math.floor(stats.atk);
 
-    // --- 4. 防御スコア ---
+    // --- 4. 防御スコア (DEF) ---
     let defScore = equipDef + (level * 4) + (fort * 2);
     addD('def', 'Armor', equipDef);
     addD('def', 'Level Bonus', `+${level * 4}`);
     addD('def', 'Fortitude', `+${fort * 2}`);
-    if (oldDef > 0) { defScore += oldDef; addD('def', 'Old Defense', `+${oldDef}`); }
+    
     if (player.hasTag("talent:iron_wall")) { defScore += 30; addD('def', 'Iron Wall', '+30'); }
+    if (player.hasTag("talent:last_stand")) {
+        const currentHP = player.getDynamicProperty("deepcraft:hp") || 1;
+        if (currentHP / stats.maxHP <= 0.3) {
+            defScore += 50;
+            addD('def', 'Last Stand', '+50');
+        }
+    }
     stats.def = Math.floor(defScore);
 
     // --- 5. クリティカル ---
@@ -131,20 +157,21 @@ function calculatePlayerStats(player, stats) {
     stats.penetration = Math.min(heavy * 0.005, 0.6);
     if (heavy > 0) addD('other', 'Penetration (Heavy)', `${(stats.penetration * 100).toFixed(1)}%`);
     
+    // --- 6. エーテル関連 ---
     stats.maxEther += (int * 5);
     addD('ether', 'Base', CONFIG.ETHER_BASE);
     addD('ether', 'Intelligence', `+${int * 5}`);
 
-    stats.magicPower = 1.0 + (int * 0.01);
-    if (int > 0) addD('other', 'Magic Power', `x${stats.magicPower.toFixed(2)}`);
+    // ★修正: IntelligenceによるMagic Power増加を完全削除 (常に1.0 + タレント補正のみ)
+    // stats.magicPower = 1.0; 
 
     const willRegen = will * CONFIG.ETHER_REGEN_PER_WILL;
     stats.etherRegen += willRegen;
     addD('regen', 'Base', CONFIG.ETHER_REGEN_BASE);
     addD('regen', 'Willpower', `+${willRegen.toFixed(1)}`);
 
-    stats.magicResist = Math.min((will * 0.005), 0.5);
-    if (will > 0) addD('other', 'Magic Resist', `${(stats.magicResist * 100).toFixed(1)}%`);
+    // ★修正: 魔法耐性ボーナスを完全削除
+    stats.magicResist = 0;
 
     // Speed / Evasion
     stats.speed = 1.0 + (agi * 0.002);

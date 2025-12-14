@@ -1,63 +1,41 @@
 // BP/scripts/data/skills.js
-import { world, system } from "@minecraft/server";
+import { world, system, EntityDamageCause } from "@minecraft/server";
 import { updateMobNameTag } from "../systems/mob_manager.js";
 import { getAffiliationId } from "../combat/combat_system.js";
+import { findNearbyEnemies, applySkillDamage } from "../combat/combat_system.js";
 
 // --- Helper for LOS Targeting ---
-/**
- * プレイヤーの視線ベクトル上に最も近い有効なターゲットを検索する。
- * @param {"mob" | "player"} targetType - プレイヤーまたはMobのどちらをターゲットするか
- */
+// (他のスキルで使う可能性があるため関数定義は残しておきます)
 function findTargetInLos(player, maxDistance, targetType) {
     const targets = player.dimension.getEntities({ 
         location: player.location,
         maxDistance: maxDistance,
-        excludeTypes: ["minecraft:item", "minecraft:xp_orb"] 
+        excludeTypes: ["minecraft:item", "minecraft:xp_orb", "minecraft:arrow", "minecraft:snowball"] 
     });
 
     const playerViewVector = player.getViewDirection();
     const playerLoc = player.getHeadLocation(); 
     let closestTarget = null;
-    let maxAlignment = 0.98; // クロスヘアの中心に近いほど値が高くなる (1.0が完全一致)
+    let maxAlignment = 0.8; 
 
     const playerPartyId = player.getDynamicProperty("deepcraft:party_id");
 
     for (const target of targets) {
         if (target.id === player.id || !target.isValid) continue;
-        
-        // ★修正点: collision_box の存在チェックを追加
         const collisionBox = target.getComponent('minecraft:collision_box');
-        if (!collisionBox) {
-            // Collision Boxがないエンティティ（多くは流体やエフェクト）は無視
-            continue;
-        }
-
-        // 1. Target Type & FF Check
+        if (!collisionBox) continue;
         const targetAffiliationId = getAffiliationId(target);
-        
-        // 味方エンティティはスキップ
-        if (playerPartyId && targetAffiliationId && playerPartyId === targetAffiliationId) {
-            continue; 
-        }
+        if (playerPartyId && targetAffiliationId && playerPartyId === targetAffiliationId) continue; 
+        if (targetType === "mob" && target.typeId === "minecraft:player") continue;
+        if (targetType === "player" && target.typeId !== "minecraft:player") continue;
 
-        // プレイヤータイプフィルタリング
-        if (targetType === "mob" && target.typeId === "minecraft:player") {
-            continue; // プレイヤーは除外
-        }
-        if (targetType === "player" && target.typeId !== "minecraft:player") {
-            continue; // Mobは除外
-        }
-
-        // 2. LOS Check (Dot Productで視線との一致度を計算)
         const dx = target.location.x - playerLoc.x;
-        // 修正後の安全なアクセス
-        const dy = (target.location.y + collisionBox.height / 2) - playerLoc.y; 
+        const dy = (target.location.y + collisionBox.height / 2) - playerLoc.y;
         const dz = target.location.z - playerLoc.z;
         const dist = Math.sqrt(dx*dx + dy*dy + dz*dz);
         if (dist === 0) continue;
 
         const vectorToTarget = { x: dx / dist, y: dy / dist, z: dz / dist };
-        
         const alignment = playerViewVector.x * vectorToTarget.x + playerViewVector.y * vectorToTarget.y + playerViewVector.z * vectorToTarget.z;
 
         if (alignment > maxAlignment) {
@@ -69,68 +47,62 @@ function findTargetInLos(player, maxDistance, targetType) {
 }
 
 export const SKILL_POOL = {
-
-    // ★新規スキル 1: Mob Targetting (PvE)
-    "target_mob": {
-        name: "§9Target Mob",
-        cooldown: 20, // 1秒 = 20 tick
-        manaCost: 3,
+    "earth_ascension": {
+        name: "§6Earth Ascension",
+        cooldown: 8,
+        manaCost: 20,
         onUse: (player) => {
-            const target = findTargetInLos(player, 15, "mob"); // 15マス以内
-            
-            if (target) {
-                target.applyDamage(5, { cause: EntityDamageCause.magic });
-                player.sendMessage(`§aMob Target: ${target.name} (Hit!)`);
-                player.dimension.spawnParticle("minecraft:basic_flame_particle", target.location);
-                return true;
-            } else {
-                player.sendMessage("§cMobターゲットが見つかりません。");
+            // 1行でターゲット取得（パーティ除外・近い順）
+            const targets = findNearbyEnemies(player, 10, 1);
+            const target = targets[0];
+
+            if (!target) {
+                // 自分のみに聞こえるエラー音
+                player.playSound("note.bass", { volume: 1.0, pitch: 0.5 });
                 return false;
             }
-        }
-    },
 
-    // ★新規スキル 2: Player Targetting (PvP)
-    "target_player": {
-        name: "§cTarget Player",
-        cooldown: 20, // 1秒 = 20 tick
-        manaCost: 3,
-        onUse: (player) => {
-            const target = findTargetInLos(player, 30, "player"); // 30マス以内
+            // 発動音 (音量1.0)
+            player.playSound("mob.shulker.bullet_hit", { volume: 1.0, pitch: 1.0 });
 
-            if (target) {
-                // FF防止はcombat_system.jsで行うため、ここでは攻撃実行
-                target.applyDamage(10, { cause: EntityDamageCause.entityAttack }); 
-                target.addEffect("blindness", 60, { amplifier: 0 }); // デバフ付与 (ブリンク)
-                player.sendMessage(`§ePlayer Target: ${target.name} (Attacked!)`);
-                player.dimension.spawnParticle("minecraft:endrod", target.location);
-                return true;
-            } else {
-                player.sendMessage("§cプレイヤーターゲットが見つかりません。");
-                return false;
-            }
-        }
-    },
+            // 即時浮遊開始
+            try { target.clearVelocity(); } catch(e){}
+            target.applyImpulse({ x: 0, y: 0.1, z: 0 }); 
 
-    // 風の突進 (Gale Dash)
-    "gale_dash": {
-        name: "§fGale Dash",
-        cooldown: 5,
-        manaCost: 15,
-        onUse: (player) => {
-            const viewDir = player.getViewDirection();
-            player.applyKnockback(viewDir.x, viewDir.z, 3.0, 0.5);
-            player.playSound("item.trident.riptide_1");
-            player.addEffect("slow_falling", 20, { showParticles: false });
-            
-            player.dimension.spawnParticle("minecraft:knockback_roar_particle", player.location);
-            for (let i = 0; i < 5; i++) {
-                system.runTimeout(() => {
-                    if (player.isValid()) {
-                        player.dimension.spawnParticle("minecraft:exploration_smoke_particle", player.location);
+            // 浮遊ループ
+            let ticks = 0;
+            const liftId = system.runInterval(() => {
+                if (!target.isValid) { system.clearRun(liftId); return; }
+
+                // ふわっと浮く
+                target.applyImpulse({ x: 0, y: 0.12, z: 0 });
+
+                // 土パーティクル
+                const angle = (ticks / 10) * Math.PI * 2;
+                const r = 1.0;
+                player.dimension.spawnParticle("minecraft:falling_dust_red_sand_particle", {
+                    x: target.location.x + Math.cos(angle) * r,
+                    y: target.location.y + (ticks * 0.05),
+                    z: target.location.z + Math.sin(angle) * r
+                });
+
+                ticks++;
+                if (ticks >= 20) {
+                    system.clearRun(liftId);
+                    if (target.isValid) {
+                        // ★修正: 共通関数で「確実に仮想HPを削る」
+                        applySkillDamage(player, target, 10);
+                        
+                        // 叩きつけ
+                        target.applyImpulse({ x: 0, y: -1.5, z: 0 });
+                        
+                        // インパクト音 (音量1.0)
+                        player.playSound("random.heavy_hit", { volume: 1.0 });
+                        player.dimension.spawnParticle("minecraft:knockback_roar_particle", target.location);
                     }
-                }, i * 2);
-            }
+                }
+            }, 1);
+            return true;
         }
     },
 
@@ -189,7 +161,7 @@ export const SKILL_POOL = {
             const targets = dimension.getEntities(options);
             
             if (targets.length === 0) {
-                player.sendMessage("§c近くに対象がいません。");
+                player.sendMessage("§8» §c近くに対象がいません。");
                 return false;
             }
 
@@ -251,7 +223,7 @@ export const SKILL_POOL = {
         onUse: (player) => {
             player.addEffect("regeneration", 100, { amplifier: 1 });
             player.playSound("random.levelup");
-            player.sendMessage("§a癒やしの波動 発動！");
+            player.sendMessage("§8» §a癒やしの波動発動！");
 
             const steps = 20;
             for(let i=0; i<steps; i++) {
@@ -289,7 +261,8 @@ export const SKILL_POOL = {
                     t.applyDamage(8);
                     const dx = t.location.x - loc.x;
                     const dz = t.location.z - loc.z;
-                    t.applyKnockback(dx, dz, 2.0, 0.5);
+                    // 新API: applyKnockback(Vector3, horizontalStrength)
+                    t.applyKnockback({ x: dx, y: 0.5, z: dz }, 2.0);
                 }
             });
             
@@ -320,7 +293,7 @@ export const SKILL_POOL = {
                 tags: [`owner:${player.id}`, "deepcraft:minion"] 
             });
             if (existingMinions.length >= 3) {
-                player.sendMessage("§cこれ以上召喚できません。");
+                player.sendMessage("§8» §cこれ以上召喚できません。");
                 return false;
             }
 
@@ -366,7 +339,7 @@ export const SKILL_POOL = {
                     dimension.playSound("mob.zombie.say", spawnPos);
 
                 } catch (e) {
-                    player.sendMessage("§c召喚失敗: " + e);
+                    player.sendMessage("§8» §c召喚失敗: " + e);
                 }
             }
             
@@ -383,7 +356,7 @@ export const SKILL_POOL = {
             player.addEffect("strength", 200, { amplifier: 1 });
             player.addEffect("speed", 200, { amplifier: 0 });
             player.playSound("mob.ravager.roar");
-            player.sendMessage("§cウォークライ！！！");
+            player.sendMessage("§8» §cウォークライ！！！");
 
             const loc = player.location;
             for(let i=0; i<10; i++) {
@@ -441,18 +414,19 @@ export const SKILL_POOL = {
                 // 3. 結果の実行
                 if (isAlly) {
                     // --- 味方の場合 (防いだ) ---
-                    player.sendMessage(`§a[検証] ${target.name} はパーティメンバーなので保護しました。`);
+                    player.sendMessage(`§8» §a${target.name} はパーティメンバーのため保護。`);
                     // 安全を示す緑のパーティクル
                     dimension.spawnParticle("minecraft:villager_happy", target.location);
                 } else {
                     // --- 敵の場合 (防がない) ---
                     target.applyDamage(5);
-                    target.applyKnockback(0, 0, 0.5, 0.3);
+                    // 新API: applyKnockback(Vector3, horizontalStrength)
+                    target.applyKnockback({ x: 0, y: 0.3, z: 0 }, 0.5);
                     // 攻撃を示す爆発パーティクル
                     dimension.spawnParticle("minecraft:huge_explosion_emitter", target.location);
                     
                     if (target.typeId === "minecraft:player") {
-                        player.sendMessage(`§c[検証] ${target.name} に命中！ (敵対判定)`);
+                        player.sendMessage(`§8» §c${target.name} に命中！`);
                     }
                 }
                 foundTarget = true;
@@ -462,9 +436,101 @@ export const SKILL_POOL = {
                 player.playSound("random.orb"); // 発動音
                 return true;
             } else {
-                player.sendMessage("§7範囲内に誰もいません。");
+                player.sendMessage("§8» §7範囲内に誰もいません。");
                 return false;
             }
+        }
+    }
+
+    // --- Debug/Test Spells (chat only) ---
+    ,"test_spell_01": {
+        name: "§dTest Spell 01",
+        cooldown: 0,
+        manaCost: 0,
+        onUse: (player) => {
+            player.sendMessage("§8» Test Spell 01");
+            return false;
+        }
+    }
+    ,"test_spell_02": {
+        name: "§dTest Spell 02",
+        cooldown: 0,
+        manaCost: 0,
+        onUse: (player) => {
+            player.sendMessage("§8» Test Spell 02");
+            return false;
+        }
+    }
+    ,"test_spell_03": {
+        name: "§dTest Spell 03",
+        cooldown: 0,
+        manaCost: 0,
+        onUse: (player) => {
+            player.sendMessage("§8» Test Spell 03");
+            return false;
+        }
+    }
+    ,"test_spell_04": {
+        name: "§dTest Spell 04",
+        cooldown: 0,
+        manaCost: 0,
+        onUse: (player) => {
+            player.sendMessage("§8» Test Spell 04");
+            return false;
+        }
+    }
+    ,"test_spell_05": {
+        name: "§dTest Spell 05",
+        cooldown: 0,
+        manaCost: 0,
+        onUse: (player) => {
+            player.sendMessage("§8» Test Spell 05");
+            return false;
+        }
+    }
+    ,"test_spell_06": {
+        name: "§dTest Spell 06",
+        cooldown: 0,
+        manaCost: 0,
+        onUse: (player) => {
+            player.sendMessage("§8» Test Spell 06");
+            return false;
+        }
+    }
+    ,"test_spell_07": {
+        name: "§dTest Spell 07",
+        cooldown: 0,
+        manaCost: 0,
+        onUse: (player) => {
+            player.sendMessage("§8» Test Spell 07");
+            return false;
+        }
+    }
+    ,"test_spell_08": {
+        name: "§dTest Spell 08",
+        cooldown: 0,
+        manaCost: 0,
+        onUse: (player) => {
+            player.sendMessage("§8» Test Spell 08");
+            return false;
+        }
+    }
+    ,"test_spell_09": {
+        name: "§dTest Spell 09",
+        cooldown: 0,
+        manaCost: 0,
+        onUse: (player) => {
+            player.sendMessage("§8» Test Spell 09");
+            return false;
+        }
+    }
+    ,"test_spell_10": {
+        name: "§dTest Spell 10",
+        cooldown: 0,
+        manaCost: 0,
+        onUse: (player) => {
+            player.sendMessage("§8» Test Spell 10");
+            return false;
         }
     }
 };

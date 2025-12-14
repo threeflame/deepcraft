@@ -7,9 +7,11 @@ export const CONFIG = {
     DEATH_ITEM_DROP_RATE: 0.5,
     MAX_PROFILES: 3,
     
-    // ★変更: Void関連の定数を削除
-    // MAX_DEATH_COUNT: 3, // 一旦削除
-    // VOID_DIMENSION... // 削除
+    // Void (エンド) システム
+    VOID_MAX_DEATHS: 3,           // Overworldでの最大死亡回数
+    VOID_SPAWN_X: 2880,           // Void転送先X座標
+    VOID_SPAWN_Y: 16,             // Void転送先Y座標
+    VOID_SPAWN_Z: 3370,           // Void転送先Z座標
 
     // Ether System
     ETHER_BASE: 100,

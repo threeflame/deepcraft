@@ -48,7 +48,8 @@ export function updateMobNameTag(entity) {
     if (percent < 0.5) color = "§e";
     if (percent < 0.2) color = "§c";
     
-    const bar = color + "|".repeat(fill) + "§8" + "|".repeat(barLen - fill);
+    // ブロック文字でHPバー生成
+    const bar = color + "█".repeat(fill) + "§8" + "░".repeat(barLen - fill);
     
     // ネームタグの適用 (現在HP / 最大HP)
     entity.nameTag = `${name}\n${bar} §f${Math.ceil(current)}/${Math.ceil(max)}`;
@@ -70,7 +71,7 @@ export function processBossSkillAI(boss) {
 function executeBossSkill(boss, skill) {
     if (skill.msg) {
         const players = boss.dimension.getPlayers({ location: boss.location, maxDistance: 30 });
-        players.forEach(p => p.sendMessage(`§e[ボス] ${skill.msg}`));
+        players.forEach(p => p.sendMessage(`§8» §eボス: ${skill.msg}`));
     }
     skill.action(boss);
 }
